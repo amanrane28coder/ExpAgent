@@ -36,7 +36,8 @@ minutes of dashboard clicks, and one wrong weight silently breaks the test."
 checkout headline, fifty-fifty, measure sign-ups, two weeks — and turns it
 into a plan: the flag, the variants, the metric, the split, and the snippet.
 The agent creates the flag from the plan — this one already exists, so it
-reuses it. The plan runs in about a tenth of a second. The interesting part
+reuses it. The plan runs in about a tenth of a second. The parser is
+deterministic — it can't invent a weight. The interesting part
 isn't what the agent does on its own — it's where it stops and asks a
 person."
 

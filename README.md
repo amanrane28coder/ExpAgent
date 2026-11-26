@@ -8,6 +8,14 @@ checked plan + approval + log — and covers the whole lifecycle through
 results and shipping, with a human approving at both ends and zero
 autonomous production changes.
 
+The parser is deterministic by design, not an LLM: a prompt is parsed
+for split, metric, duration and quoted values, and anything off-template
+exits 2 with a reason. An LLM that hallucinates a weight breaks the
+experiment silently. The agent's judgment is the lifecycle — what it does
+alone (plan, gate, create, apply, results, ship) versus where it stops
+and asks a person (two human gates). That decision boundary is the
+track's own question, answered.
+
 **Track 2: AI Agents and Feature Flags — $1,000.**
 
 ## Live proof (verified Nov 26, 2026)

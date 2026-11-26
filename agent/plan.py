@@ -4,6 +4,10 @@
 Stdlib only. No network, no pip. Reads a prompt from argv, --file, or stdin
 and prints one plan JSON object to stdout.
 
+The parser is deterministic (regex, no LLM) by design: it cannot
+hallucinate a plan — anything off-template exits 2 with a reason. An LLM
+that invents a weight would break the experiment silently.
+
 Usage:
     python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks"
     python3 agent/plan.py --file examples/prompt-1.txt
@@ -13,6 +17,7 @@ Exit codes: 0 plan produced, 2 could not parse the prompt.
 """
 
 import json
+import os
 import re
 import sys
 
@@ -109,7 +114,9 @@ def parse_environment(prompt):
 # Development environment key for the toggle-wars project. This is a
 # client-side SDK key — public by design (it ships in the demo page and in
 # every generated snippet). It is NOT a secret and NOT a Master API key.
-DEV_ENV_KEY = "MHSyYjVPRHPkaYLkdRHaCS"
+# Override it with EXPAGENT_ENV_KEY to point the snippet at another
+# environment; the default keeps the demo working out of the box.
+DEV_ENV_KEY = os.environ.get("EXPAGENT_ENV_KEY", "MHSyYjVPRHPkaYLkdRHaCS")
 
 
 def build_sdk_snippet(flag, event):
