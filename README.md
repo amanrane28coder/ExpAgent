@@ -1,391 +1,294 @@
-# ExpAgent — prompt-to-experiment agent (Toggle Wars, Track 2)
+# FlagGate — approval + audit for self-hosted Flagsmith (Toggle Wars, Track 3)
 
-One prompt in, one checked experiment plan out — applied only after a human
-approves, with an audit log and a rollback command. Release Gate's pattern,
-applied to Flagsmith experiments.
+A flag change is a file, not a dashboard click. FlagGate gates it, a human
+approves it, and only then does it touch Flagsmith — with every decision
+written to an append-only audit log. Release Gate's pattern, applied to
+Flagsmith flag changes on a self-hosted instance.
 
-**Track 2: AI Agents and Feature Flags — $1,000.** Judging: Flagsmith CLI/API
-or MCP; saves real time; a human approves changes; clear output.
+**Track 3: Build on Open Source Flagsmith — PS5 + GTA 6.**
+
+## Live proof (verified Nov 27, 00:05 IST)
+
+- **Apply, proven live** — flag `checkout-cta` (id 1) created via the
+  Management API; variant `variant_b` ("Start free trial", option id 1).
+  `apply.py --approve`: gate PASS, before {variant_b 0, control 100} →
+  after {variant_b 50, control 50}, `APPLIED`. The published state was
+  read back from the server before the audit line was written.
+- **Demo flip, proven live** — 12 identities checked: 8 serve control
+  ("Buy now"), 4 serve variant_b. Demo pair: alice + eve. Demo serves
+  200 on :8003.
+- **Tests: 92/92 pass** (VM + Mac). **One-command setup:**
+  `docker-compose.yml` in this repo spins up the whole stack.
+- **Not yet confirmed by a human click:** whether the sidebar audit-log /
+  change-request entries ask for Enterprise (the gap premise).
+  Flagsmith's own docs say they are Enterprise/Scale-Up-only.
+
+## What it demonstrates
+
+- **Use of Flagsmith** — a real self-hosted instance; the flag does real
+  work end to end (create → gate → apply → server-verified 50/50 →
+  per-identity SDK copy) through the update-flag endpoint.
+- **Impact** — the gap is real: self-hosted Flagsmith ships no usable
+  approval or audit trail, so any dashboard user can flip a flag to
+  production with no record. FlagGate supplies both, without forking
+  Flagsmith.
+- **Creativity** — the approval is a file (proposal YAML), the gate is
+  deterministic and testable, and the applier verifies what the server
+  published before it audits — it refuses to audit a lie.
+- **Demo video** — `VIDEO-SCRIPT.md`, ~2:10: cold-open flip → gap →
+  gate BLOCK → apply evidence.
+- **Reuse** — `docker-compose.yml` (sanitized, CHANGE-ME secrets),
+  README, starter templates in `examples/`, 92/92 tests.
+
+## The gap
+
+The open-source self-hosted edition of Flagsmith does not include change
+requests or audit logs — Flagsmith's own self-hosted page says the OSS
+version "doesn't include security and management features like SAML,
+change requests, audit logs, and more". Those are Enterprise/Scale-Up
+features. So on a self-hosted instance, anyone with dashboard access can
+flip a flag straight to production and there is no record of who did it,
+who approved it, or what the previous value was.
+
+Nuance, stated honestly: the OSS dashboard sidebar may *show* audit-log /
+change-request entries, but they are license-gated and unusable without
+Enterprise. FlagGate does not claim the buttons don't exist — it claims
+there is no *usable* approval or audit trail on the free self-hosted
+build, and supplies both externally, without forking Flagsmith.
 
 ## What it does
 
 ```
-prompt ──► plan (agent/plan.py) ──► gate (gate/gate.py) ──► human approves
-                                                              │
-                                                              ▼
-                                    create flag (agent/create_flag.py --approve)
-                                    multivariate flag + variants from the plan
-                                                              │
-                                                              ▼
+proposal (YAML) ──► gate (gate/gate.py) ──► human approves (approver ≠ author)
+                                                            │
+                                                            ▼
                                               apply (agent/apply.py --approve)
-                                              metric + experiment via CLI v2
-                                              + audit log line + rollback cmd
-                                                              │
-                                                              ▼
-                                        run ──► results (agent/results.py)
-                                                      │  human reads the
-                                                      │  dashboard, ends it
-                                                      ▼
-                                              ship (agent/ship.py --approve)
-                                              winner to 100% + audit line
+                                              PATCH via the update-flag API
+                                              + audit log line + rollback
+                                                            │
+                                                            ▼
+                                              log (agent/log.py)
+                                              every decision, one line each
 ```
 
-The stock Flagsmith setup prompt creates a flag + metric + experiment. It does
-not validate the plan, show a diff, guard a bad split, or leave an audit trail
-or rollback. That is what ExpAgent adds: the **checked plan + approval + log**,
-not the creation call. And it does not stop at setup: `results.py` is the
-decision checkpoint and `ship.py` rolls the winner out — so the agent covers
-the whole lifecycle, with a human approving at both ends (apply and ship) and
-zero autonomous production changes. The agent refuses to ship a running or
-inconclusive experiment: it never decides the winner itself.
+The gate is deterministic and testable. The applier re-runs the gate
+itself before every write, checks the human approval, and verifies the
+published state from the PATCH response before it audits. Zero autonomous
+production changes: without a human approver who is not the author,
+nothing is applied.
+
+## Self-hosted instance — read this first
+
+The Flagsmith stack runs on the Mac in `~/flagsmith-local`
+(`docker compose up -d`). The ports changed during the build, because
+the original note was wrong:
+
+| Port | What it actually is |
+|------|---------------------|
+| **8002** | **Flagsmith — frontend + Management API** (`http://localhost:8002/`, health returns the Django "System status" page, API docs `/api/v1/docs/`) |
+| 3100 / 5173 | **Rakazo, a different stack** — not Flagsmith. Do not create the admin there. |
+| 8000 | **ExpAgent demo server** (Track 2) — `python -m http.server` in `~/expagent/demo-app`. Do not stop it. |
+
+Or bring up your own instance from this repo — `docker-compose.yml` is a
+sanitized copy of the official Flagsmith compose (same services, ports
+8002/8001, experimentation on). Replace every `CHANGE-ME` value first,
+then `docker compose up -d`; the admin, project and flag steps below
+are still manual browser steps.
+
+The live stack maps `8002:8000` (it was `8000:8000`, which collided with
+the ExpAgent demo server, so the API was unreachable from the host until
+the remap). After a Mac restart: `docker compose up -d` in
+`~/flagsmith-local`, then check `http://localhost:8002/health`.
 
 ## One-command run
 
 ```sh
-./tests/run_tests.sh          # full suite (plan + gate + apply + probe + status)
+./tests/run_tests.sh          # full suite (yamlmini + gate + probe + apply + log + demo)
 ```
 
-End-to-end on one prompt (dry-run — nothing touches Flagsmith):
+End-to-end on one proposal (dry-run — nothing touches Flagsmith).
+`state-live.json` mirrors the live flag (50/50, Nov 27); `state-example.json`
+is the probe's fixture (90/10) — do not edit it, the jump case depends on it:
 
 ```sh
-python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks" > /tmp/plan.json
-python3 gate/gate.py /tmp/plan.json examples/state-example.json
-python3 agent/create_flag.py /tmp/plan.json     # dry-run: prints commands
-python3 agent/create_flag.py /tmp/plan.json --approve  # real flag create (needs login)
-python3 agent/apply.py /tmp/plan.json            # dry-run: prints commands
-python3 agent/apply.py /tmp/plan.json --approve  # real apply (needs flagsmith login)
-python3 gate/probe.py                            # 5 adversarial + 1 clean plan
-python3 agent/status.py 663                      # read one experiment (needs login)
-python3 agent/results.py 685                     # decision checkpoint (read-only)
-python3 agent/ship.py 685 --winner variant_b     # dry-run: prints the rollout
-python3 agent/ship.py 685 --winner variant_b --approve  # real ship (needs login)
+python3 gate/gate.py examples/proposal-clean.yaml examples/state-live.json
+python3 gate/probe.py                            # 7 adversarial + 1 clean proposal
+python3 agent/apply.py examples/proposal-clean.yaml --state examples/state-live.json
+python3 agent/log.py                             # every decision, one line each
 ```
 
-## Example prompts and expected verdicts
-
-| # | Prompt | Plan | Gate (vs `examples/state-example.json`) |
-|---|--------|------|------------------------------------------|
-| 1 | `A/B test checkout headline, 50/50, measure sign-ups, 2 weeks` | flag `checkout-headline`, 50/50, event `signup_completed`, 14 days | PASS |
-| 2 | `A/B test pricing page, 70/30, measure checkouts, 1 week` | flag `pricing-page`, 70/30, event `checkout_completed`, 7 days | PASS |
-| 3 | `Multivariate test onboarding flow, 40/30/30, measure trial starts, 3 weeks` | flag `onboarding-flow`, 40/30/30, event `trial_started`, 21 days | PASS |
-
-The three prompts live in `examples/`; the gate verdicts above are what
-`tests/test_plan.py` and `tests/test_gate.py` assert.
-
-## The gate (deterministic, exit 0 PASS / 1 BLOCK / 2 error)
-
-`python3 gate/gate.py plan.json state.json` — pure function, no network.
-BLOCKs on:
-
-- variant weights not summing to 100 (e.g. 99)
-- any variant at 0%
-- metric event not in the flag state's known-events list
-- any variant moving more than 50pp vs its current weight
-- kill-switch flag off
-- a staging-only flag changed in production
-
-The gate recommends only — it approves nothing. A human approves.
-
-## The probe runner (adversarial plans through the real gate)
-
-`python3 gate/probe.py` builds 5 adversarial plans + 1 clean plan and runs
-each through `gate/gate.py` as a subprocess, printing one verdict line each
-plus a summary. Exit 0 iff every verdict matches expectation, else 1.
-
-| Case | Expected |
-|---|---|
-| `clean-50-50` | PASS |
-| `weights-sum-99` | BLOCK — weights sum to 99, not 100 |
-| `variant-0pct` | BLOCK — a variant has 0% weight |
-| `unknown-metric` | BLOCK — metric event is not a known event |
-| `rollout-jump-10-to-100` | BLOCK — rollout jump for variant_b: 10% -> 100% (>50pp) |
-| `kill-switch-off` | BLOCK — kill-switch flag is off |
-
-Base state is `examples/state-example.json`. The jump and kill-switch cases
-use a focused state override, because those checks cannot fire against the
-base state (its weights are 50/50 and its kill-switch is on).
-
-Gate rules are FROZEN — the probe exercises them, it changes none. One
-crash the probe caught and fixed (rule unchanged, reason text unchanged):
-the 0%-variant reason string was `"a variant has 0% weight: %s" % ...`,
-and the bare `%` made %-formatting raise `ValueError` — any 0% plan
-crashed the gate with a traceback instead of a BLOCK verdict. It is now
-`0%%`, so the reason prints. The old `test_gate.py` 0% case had passed
-only because the traceback echoed the reason string.
-
-## Creating the flag (CLI v2 — NOT MCP)
-
-Before this command, the flag was the one piece ExpAgent did not create:
-`checkout-headline` was made by hand in the dashboard. `create_flag.py`
-closes that gap: the flag comes from the plan like everything else, so the
-pipeline is prompt → plan → gate → flag → metric → experiment → results →
-ship. Mechanism (Flagsmith's own "Set Up an Experiment with a Coding
-Agent" doc): create the flag with the control variant's VALUE as the flag
-value, then add each non-control variation with its key and weight 0. Every
-variation needs a key — one without a key records no exposures. `control`
-is reserved for the flag's own value, so the flag's initial value IS the
-control copy ("Buy now"), not the literal string "control".
+Live apply (already run — see Live proof above):
 
 ```sh
-flagsmith feature create checkout-headline --value "Buy now" --enabled
-flagsmith feature variant add checkout-headline --value "Start free trial" --key variant_b --weight 0
+python3 agent/apply.py examples/proposal-clean.yaml \
+  --api-key <management API key> --env-key <environment key> \
+  --feature-id <flag id> --option-ids '{"variant_b": <option id>}' --approve
 ```
 
-Idempotent: if the flag already exists it is reused (no re-create) and only
-missing variants are added — a re-run on `checkout-headline` prints "already
-exists (id 305610)" and exits 0. Dry-run (default) prints the commands and
-runs nothing; `--approve` creates. The create/variant-add calls return text,
-not JSON, so the command never parses their output — it re-reads the flag
-with `feature get --json` to verify the result, and appends an audit line.
+## The gate (gate/gate.py — rules are frozen)
 
-## The applier (CLI v2 + REST API — NOT MCP)
+BLOCK (exit 1) on:
 
-Per the 2026-11-18 correction: the Flagsmith MCP server cannot start
-experiments, so the write path is `flagsmith api ...`. Payload shapes are the
-proven-live ones from pre-work step 4 (free tier, experiment 397 created,
-not started):
+1. **Variant weights don't sum to 100.**
+2. **Rollout jump > 50pp** vs the flag's current weights (e.g. 10% → 100%).
+3. **Turning off a kill-switch / safety flag.**
+4. **The global kill-switch is off** — no changes while the safety net is down.
+5. **Environment / flag-name mismatch** — a staging-only flag in production,
+   or a production-only flag outside production.
+6. **Stale flag** — no evaluation or change in > 90 days. BLOCK as a
+   cleanup flag, never auto-delete. Skipped with a printed note when the
+   state carries no evaluation timestamps (the live API state has none);
+   skipped is not a pass.
 
-- metric: `POST api/v1/environments/<env-key>/experiment-metrics/` —
-  `{"name", "aggregation": "occurrence", "direction": "up",
-    "definition": {"version": 1, "event": "<event>"}}`
-- experiment: `POST api/v1/environments/<env-key>/experiments/` — feature id,
-  `metrics: [{"metric": <id>, "expected_direction": "increase"}]`,
-  `experiment_rollout` enabled at 100% with control as the base value and
-  `multivariate_feature_state_values` carrying each variant's
-  `percentage_allocation`.
+PASS (exit 0) otherwise, with a written recommendation only — the gate
+approves nothing itself. Exit 2 is an error (unreadable file, malformed
+YAML/JSON).
 
-Dry-run (default) prints the exact commands and payloads and runs nothing.
-`--approve` runs them: metric first, then the experiment with the real metric
-id. The experiment is created, **never started** — starting locks the flag.
-Every run appends one JSON line to `audit.log` (who, what, verdict,
-timestamp, before/after weights) and prints a rollback command
-(`--method DELETE` on the created experiment).
+## The human gate (agent/apply.py)
 
-The applier resolves the feature id and variant option ids with
-`flagsmith feature get <flag> --json` (or take `--feature-id` /
-`--option-ids`). It never touches experiment 397 (pre-work, status created).
+The proposal names an `author` and an `approver`, and carries
+`approved: true`. The applier refuses (exit 1, audited as `refused`) unless
+all three hold: the proposal is approved, an approver is named, and the
+approver is not the author. The reviewer recommends only; the approver
+logs the decision — the Release Gate roles, verbatim.
 
-The generated SDK snippet (`sdk_snippet` in every plan, saved as
-`demo-app/snippet.js`) carries the real toggle-wars Development
-environment key — a client-side SDK key, public by design, not a secret
-and not a Master API key.
+## The write path (agent/apply.py)
 
-## The status command (read one experiment)
+The write goes through Flagsmith's experimental update-flag endpoint
+(`PATCH api/__future__/environments/<env-key>/features/<feature-id>/`),
+verified present in this build's own OpenAPI schema
+(`http://localhost:8002/api/v1/swagger.json`): `UpdateFlagRequest` takes
+`environment_default` with `enabled`, `value` (`{type, value}`) and
+`variants` (`[{id, weight}]`). It is versioning-agnostic — the same
+request on v1 and v2 environments. Auth is
+`Authorization: Api-Key <management API key>` (Flagsmith's own docs; the
+local schema declares no security scheme, and the API 401s without a key).
+The environment key in the URL is the SDK key for the environment; the
+API key is the management key from the dashboard. They are different keys.
 
-`python3 agent/status.py <experiment-id>` reads one experiment through
-CLI v2 and prints a short summary: id, name, status, feature, metrics
-with names, rollout (enabled, percentage, variant allocations), started_at.
+The applier reads the flag's current state with the update-flag GET
+(fresh weights/value/enabled), re-runs the gate, checks the human
+approval, then PATCHes. It verifies the published state from the PATCH
+response — weights, value, enabled — and refuses to audit a lie: a
+mismatch exits 2 with verdict `failed`. The rollback is the previous
+weights/value as a PATCH, printed on every apply.
+
+State sources: `--state` (a JSON fixture — the only source the gate's
+kill-switch lists, staging lists and stale timestamps can come from),
+live credentials (`--api-key` + `--env-key` + `--feature-id` +
+`--option-ids`), or both (fixture metadata + fresh API values).
+
+## Live proof — proven on the self-hosted instance (Nov 27, 00:05 IST)
+
+- **Apply path, proven live.** Flag `checkout-cta` (id 1) created via
+  the Management API; variant `variant_b` ("Start free trial", option
+  id 1). `apply.py examples/proposal-clean.yaml --approve`: gate PASS,
+  before {variant_b 0, control 100} → after {variant_b 50, control 50},
+  `APPLIED`. The published state was read back from the server
+  (variants `[{id 1, weight 50}]`) before the audit line was written.
+  The audit line is in `audit.log` (gitignored, local only).
+- **Demo flip, proven live.** `demo-app/index.html` is wired to the
+  Development environment key and the flag, serving 200 on :8003.
+  12 identities checked against the SDK API: 8 serve control
+  ("Buy now"), 4 serve variant_b ("Start free trial"). Demo pair:
+  alice (control) + eve (variant_b).
+- **What is also verified live:** the stack is up (API + frontend on
+  :8002), the update-flag endpoint exists in this build's schema with
+  the exact request shape the applier sends, and the API enforces auth
+  (401 without a key). The gate, probe runner, applier and log are all
+  green: 92/92 tests on VM + Mac.
+- **Not yet confirmed by a human click:** whether the sidebar
+  audit-log / change-request entries ask for Enterprise (the gap
+  premise). Flagsmith's own docs say they are Enterprise/Scale-Up-only;
+  the click is the last confirmation.
+
+## Setup — 5 minutes in the browser
+
+At `http://localhost:8002/` (NOT :5173 — that is Rakazo):
+
+1. **Create the admin account** — first visit offers account creation.
+   Any admin login works.
+2. **Create 1 project** (OSS self-hosted allows 1 project per
+   organisation) — name it `flaggate`.
+3. **Create 1 flag** in the project's Development environment —
+   name `checkout-cta`, type multivariate, default value `Buy now`,
+   add variant `variant_b` with value `Start free trial`, weight 0.
+   (Done Nov 27: flag id 1, variant_b option id 1. `control` is a
+   reserved variant key — control is the default value plus the
+   unallocated weight, and the applier already handles that.)
+4. **Confirm the gap** — look at the sidebar: audit log / change
+   requests are shown but license-gated (clicking one asks for
+   Enterprise). That is the gap FlagGate fills; note what you see.
+5. **Copy two keys** — the environment key (Development environment
+   settings) and a management API key from **Organisation Settings →
+   API Access** (NOT Account Settings → API keys: that key is rejected
+   by the Management API on both self-hosted and Cloud). Paste both
+   into the live-apply block below — never into the repo.
+
+Live proof — already run (Nov 27, 00:05 IST):
 
 ```sh
-python3 agent/status.py 663
-# experiment 663: A/B test: checkout headline
-#   status: created (started_at: —)
-#   feature: checkout-headline (id 305610)
-#   metrics: signup_completed (id 648, occurrence, up, expect increase)
-#   rollout: enabled, 100% — control: 50% (rest), variant_b (option 37289): 50%
+cd ~/flaggate
+python3 agent/apply.py examples/proposal-clean.yaml \
+  --api-key <management API key> --env-key <environment key> \
+  --feature-id 1 --option-ids '{"variant_b": 1}' --approve
+python3 agent/log.py
 ```
 
-Read-only — it never creates, starts, or deletes anything.
-`--dry-run` prints the command and runs nothing; `--help` prints usage.
-Exit 0 on success, 2 on error.
+Result: `APPLIED`, the demo app's button flips for the variant
+identity, and `log.py` shows the approved line. If the PATCH 401s, the
+API key is wrong (it must be the Organisation API token, step 5); if
+it 404s, the flag id is wrong.
 
-## Results and shipping the winner
+## Demo app (demo-app/)
 
-`python3 agent/results.py <experiment-id>` is the decision checkpoint. It
-prints status, feature, metrics, and any rollout decision the API carries —
-and it says plainly that computed results (win probability, lift, enrolled
-users) are NOT in the experiment API response: Flagsmith computes them on
-demand in the dashboard (Refresh results, at most once every 5 minutes).
-It prints the ship rule instead of inventing numbers: a variation at ≥95%
-chance to be best is the recommendation; a 95% credible interval crossing
-zero means inconclusive — do not ship.
-
-`python3 agent/ship.py <experiment-id> --winner <key>` rolls the winner
-out to 100% of users. It is the second human gate: the human reads the
-dashboard results, ends the experiment there (which freezes results and
-unlocks the flag), and names the winner here. The agent only executes.
-
-Refusals (exit 1, nothing changed): the experiment is not `completed`
-(a running experiment is never shipped), `--winner` is not `control`
-or a variant on the flag, or `--winner` disagrees with the experiment's
-recorded rollout decision (`rollout_decision` / `rollout_variant`, set
-when the experiment is completed in the dashboard) — a `disable`
-decision, a missing decision, or an unknown decision value is refused
-too, so a ship can never contradict what was decided. Mechanism: GET the
-flag's current weights, then PATCH the variant weights to winner 100 /
-everything else 0 (a control win sets all options to 0) through
-Flagsmith's experimental update-flag endpoint
-(`PATCH api/__future__/environments/<key>/features/<feature-id>/`).
-The legacy `featurestates/<id>/` PUT returns 400 on this environment —
-it uses Feature Versioning v2 — and the update-flag endpoint is the
-versioning-agnostic replacement (same request on v1 and v2, publishes a
-new version per call on v2). The published state is read back from the
-PATCH response and verified before the audit line is written. Dry-run by
-default; `--approve` ships it, appends an audit line, and prints the
-rollback (the previous weights as a PATCH).
+A static checkout page modelled on ExpAgent's demo, pointing at the
+self-hosted instance. Serve it:
 
 ```sh
-python3 agent/results.py 685
-# experiment 685: A/B test: checkout headline
-#   status: running (started_at: 2026-11-26T15:56:13.789522Z, ended_at: —)
-#   ...
-#   computed results: not in this API response — open the experiment in
-#   Flagsmith Cloud and click Refresh results (at most once every 5 minutes).
-#   decision: none yet — experiment still running.
-
-python3 agent/ship.py 685 --winner variant_b --approve
-# REFUSED: experiment 685 is running — ExpAgent only ships a completed
-# experiment. Read the results in the dashboard, end the experiment there,
-# then ship.
+cd demo-app && python3 -m http.server 8003
+# http://localhost:8003/?identity=alice
 ```
 
-Verified live 2026-11-26 on experiment 699 (checkout-subhead):
-`ship.py 699 --winner variant_b --approve` shipped variant_b to 100% via
-the update-flag endpoint and wrote the audit line. The experiment's
-completion had already applied the rollout, so before and after both read
-`{variant_b: 100}` — the live proof is the PATCH itself (endpoint,
-payload, response verification, audit line), not a visible flip.
+It reads the flag for the identity in the URL and shows the variant
+copy on the button. It is wired to the Development environment key and
+the `checkout-cta` flag, and the flip is proven live: alice → control
+("Buy now"), eve → variant_b ("Start free trial"). Try
+`http://localhost:8003/?identity=alice` vs `?identity=eve`.
 
-## The live demo (demo-app/)
+## Video script
 
-`demo-app/index.html` is the checkout page the experiment drives. It reads
-flag `checkout-headline` and tracks event `signup_completed` — the flag and
-metric ExpAgent manages. Serve it and open it in two tabs with different
-identities to see two variants:
+Full shot list + narration: `VIDEO-SCRIPT.md` (~2:10, cold-open flip,
+gap, gate BLOCK, apply evidence, close). Record silent screen
+(Cmd+Shift+5, mic OFF) + separate voiceover; merge with ffmpeg. Do not
+run the agent live on camera — replay the verified run. Do NOT re-run
+`apply.py --approve` on camera (duplicate audit line) and do NOT flip
+the flag in the dashboard (breaks the live 50/50).
 
-```sh
-cd demo-app && python3 -m http.server 8000
-# http://localhost:8000/?identity=alice
-# http://localhost:8000/?identity=carol
-```
-
-The page shows the identity in use, the flag value, and which variant it
-is (`Buy now` = control, `Start free trial` = variant_b); clicking the
-button sends `signup_completed`. `?identity=` defaults to `demo-user`.
-
-The flip is live: experiment 685 has been running since Nov 26, 2026
-21:26 IST (50/50, metric 674) — alice shows "Buy now" (control), carol
-shows "Start free trial" (variant_b), verified via the edge API and in
-the browser. The throwaway experiment 699 was completed and shipped
-Nov 26, 23:15 IST. Do not end 685 before the video — the flip dies
-with it.
-
-## Layout
+## Files
 
 ```
-agent/plan.py    prompt -> plan JSON (stdlib only)
-agent/create_flag.py plan -> multivariate flag, --approve only (idempotent)
-agent/apply.py   plan -> flagsmith api calls, --approve only
-agent/status.py  experiment id -> short human-readable summary (read-only)
-agent/results.py experiment id -> decision checkpoint (read-only)
-agent/ship.py    experiment id + winner -> rollout to 100%, --approve only
-gate/gate.py     deterministic checks, exit 0/1/2
-gate/probe.py    5 adversarial + 1 clean plan through the real gate
-demo-app/        static checkout page + the SDK snippet plan.py generates
-examples/        3 prompts + a flag-state fixture for the gate
-tests/           test_plan.py, test_gate.py, test_apply.py,
-                 test_probe.py, test_status.py, test_results.py,
-                 test_ship.py, test_create_flag.py, run_tests.sh
-audit.log        appended by create_flag.py / apply.py / ship.py runs
-                 (created on first run)
+gate/gate.py         proposal YAML + flag state -> PASS / BLOCK / error
+gate/yamlmini.py     strict YAML-subset parser (stdlib has no YAML)
+gate/probe.py        7 adversarial + 1 clean proposal through the real gate
+agent/apply.py       human gate + update-flag PATCH + audit + rollback
+agent/log.py         pretty-print audit.log, one decision per line
+examples/            proposal-clean.yaml, proposal-jump.yaml,
+                     proposal-killswitch.yaml, state-example.json
+                     (probe fixture, 90/10), state-live.json (live, 50/50)
+demo-app/index.html  static checkout page on the self-hosted instance
+docker-compose.yml   sanitized official Flagsmith compose (CHANGE-ME secrets)
+VIDEO-SCRIPT.md      video shot list + narration (~2:10)
+tests/               run_tests.sh + test_yamlmini.py, test_gate.py,
+                     test_probe.py, test_apply.py, test_log.py, test_demo.py
+audit.log            appended by apply.py runs (gitignored, never committed)
 ```
 
 ## Tests
 
-Release Gate style: real subprocess runs, no mocks for plan/gate. The applier
-tests run against a fake `flagsmith` executable on PATH that records argv/stdin
-and returns canned ids — the real CLI and the real Cloud project are never
-touched. Adversarial cases covered: weights sum 99 → BLOCK, 0% variant →
-BLOCK, unknown metric → BLOCK, rollout jump >50pp → BLOCK, kill-switch off →
-BLOCK, prod + staging-only flag → BLOCK, clean plan → PASS, failing CLI →
-apply exits 2 with a `failed` audit line. The probe runner
-(`gate/probe.py`, covered by `tests/test_probe.py`) runs all six cases
-through the real gate in one command. The status tests
-(`tests/test_status.py`) run `agent/status.py` against a fake `flagsmith`
-returning a canned experiment shaped like the real experiment 663, and
-assert `--help` / `--dry-run` make no CLI call. The results tests
-(`tests/test_results.py`) assert the checkpoint prints the status and the
-honest "not in this API response" line and invents no rollout decision for
-a running experiment. The ship tests (`tests/test_ship.py`) assert the
-refusals (running experiment, unknown winner — no PUT, no audit), the
-dry-run (prints the rollout, sends nothing), and the approved ship (one
-PUT, winner 100 / others 0, base value untouched, audit line appended);
-a control win sets every option to 0. The create_flag tests
-(`tests/test_create_flag.py`) run against a fake `flagsmith` that keeps
-flag state in a file, so `feature get` reflects what `feature create` /
-`feature variant add` did: they assert the dry-run prints both commands
-and calls nothing, the approve path creates the flag with the control
-value and adds each variant with its key and weight 0, an existing flag
-is reused with nothing added, a flag with a missing variant gets only
-that variant, and `--help` / bad plans exit cleanly.
-
-## Timing (measured)
-
-Agent path for prompt 1 — plan + gate + apply dry-run — measured with the
-shell `time` builtin, 3 runs, from the repo root:
-
-| Run | Real time |
-|---|---|
-| 1 | 0.125s |
-| 2 | 0.118s |
-| 3 | 0.118s |
-
-**Median: 0.118s.** That is compute only: parsing the prompt, running the
-gate, and printing the dry-run apply commands. It does not include the
-human reading and approving the plan, or the real Flagsmith API calls on a
-live apply. The honest video claim is: prompt in, checked plan out in
-~0.1s of compute; a human reads it and approves in under a minute.
-
-The manual comparison is the brief's ~10-minute estimate for the same four
-objects by hand — dashboard clicks for flag + variant + metric + experiment
-+ SDK snippet — **not** a fresh measurement. Do not present it as measured.
-
-## Video shot list (~2 min) — full script in VIDEO-SCRIPT.md
-
-1. Cold open: the flip — two tabs (`?identity=alice` "Buy now",
-   `?identity=carol` "Start free trial").
-2. Problem: hand setup = flag + variants + metric + split + SDK code,
-   ~10 min of dashboard clicks (brief's estimate), one wrong weight breaks
-   the test.
-3. Prompt: one sentence in, plan out — flag, variants, metric, split,
-   code. The agent creates the flag from the plan (this one already
-   exists, so it reuses it). The agent proposes; the human approves.
-4. Gate: the probe BLOCKs bad plans (weights 99, 0% variant, unknown
-   metric) with the reason shown — and it caught a real bug in itself
-   (0% crash, fixed).
-5. Human approves; agent applies; `status.py` shows experiment 685
-   running; audit log shows the decision; Flagsmith Cloud dashboard shows
-   the 50/50 split.
-6. Live flip explained; a click sends `signup_completed`.
-7. Results: `results.py` shows no computed results yet and the 95% ship
-   rule; `ship.py --approve` refuses — 685 is still running. The agent
-   never ships without evidence and a human naming the winner.
-8. Rollback: one command deletes the experiment (proven on 663, audit log
-   shows it). Close: "One prompt, checked, approved, applied. Repo on
-   screen."
-
-## Status — what is done, what needs Aman's terminal
-
-Done (all verified in this repo, no real Flagsmith calls in tests):
-
-- Day 1 core: prompt parser, deterministic gate, CLI applier, demo app.
-- Day 2 loop, live 2026-11-26: plan 1 gated PASS, applied in Aman's
-  terminal (metric 648, experiment 663, created, not started), audit line
-  appended, rollback DELETE proven (663 verified gone; list shows only
-  pre-work experiment 397). Orphan metric 649 exists from a duplicate
-  re-apply (harmless, same as the pre-work 344/345 pair).
-- Probe runner + status command + live demo wiring + measured timing
-  (this round).
-
-Still to do
-
-Done, live: plan 1 applied as experiment 685 (metric 674), started
-Nov 26, 2026 21:26 IST, flip verified (alice "Buy now" / carol
-"Start free trial"); throwaway experiment 699 completed and shipped
-Nov 26, 23:15 IST (live proof of results + ship).
-
-1. Record the video (shot list above) and submit Track 2 before
-   Sun Nov 29, 20:00 IST.
-2. Manual baseline (Aman): time the full manual flow for a fresh flag
-   in the dashboard — until then "about ten minutes" stays an estimate,
-   correctly labelled.
+`./tests/run_tests.sh` — 92 checks, all real subprocess runs. The applier
+is tested against a tiny stdlib HTTP server that stands in for the
+Management API (records requests, enforces the Api-Key header, echoes
+weights back, and can be told to echo wrong weights — the applier must
+refuse to audit that). The gate and probe run against real YAML files
+and real state JSON. No mocks of the code under test.

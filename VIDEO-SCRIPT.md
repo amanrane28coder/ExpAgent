@@ -92,7 +92,7 @@ every Flagsmith experiment."
    - `python3 agent/status.py 685` (read-only, safe) — shows running.
    - `grep 685 audit.log` — shows the approved apply line.
    - Flagsmith Cloud dashboard, experiment 685 open — status running,
-     50/50 split visible. (Sign in as rane.aman28@gmail.com first.)
+     50/50 split visible. (Sign in to Flagsmith Cloud first.)
 6. **Flip explained + metric** — back to the carol tab, click the button:
    the log line "event sent: signup_completed" appears. Then the alice tab
    for contrast.
