@@ -54,7 +54,7 @@ def check(plan, state):
     if total != 100:
         reasons.append("variant weights sum to %s, not 100" % total)
     if any(w == 0 for w in weights):
-        reasons.append("a variant has 0% weight: %s"
+        reasons.append("a variant has 0%% weight: %s"
                        % ", ".join(v["key"] for v in variants
                                    if v["weight"] == 0))
 

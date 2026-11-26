@@ -1,17 +1,18 @@
-// ExpAgent-generated snippet — flag: checkout-cta, metric event: checkout_completed
-// Produced by: python3 agent/plan.py "A/B test checkout headline, 50/50, measure checkouts, 2 weeks"
-// (flag/value pairs below use the pre-work Cloud flag: control "Buy now",
-//  variant_b "Start free trial". Paste your Development environment key in.)
+// Produced by: python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks"
+// (flag/value pairs use the live Cloud flag checkout-headline: control "Buy now",
+//  variant_b "Start free trial". The environment key is the toggle-wars
+//  Development SDK key — client-side, public by design.)
+// ExpAgent-generated snippet — flag: checkout-headline, metric event: signup_completed
 import flagsmith from 'flagsmith';
 
 await flagsmith.init({
-  environmentID: '<YOUR_ENVIRONMENT_ID>', // Development env key
+  environmentID: 'MHSyYjVPRHPkaYLkdRHaCS', // toggle-wars Development env key
   api: 'https://edge.api.flagsmith.com/api/v1/',
 });
 
 // Read the flag value (variant copy) for this identity:
-const value = flagsmith.getValue('checkout-cta');
+const value = flagsmith.getValue('checkout-headline');
 document.getElementById('cta').textContent = value;
 
 // Record the conversion event when it happens:
-flagsmith.track('checkout_completed');
+flagsmith.track('signup_completed');

@@ -104,13 +104,19 @@ def parse_environment(prompt):
     return "development"
 
 
+# Development environment key for the toggle-wars project. This is a
+# client-side SDK key — public by design (it ships in the demo page and in
+# every generated snippet). It is NOT a secret and NOT a Master API key.
+DEV_ENV_KEY = "MHSyYjVPRHPkaYLkdRHaCS"
+
+
 def build_sdk_snippet(flag, event):
     return (
         "// ExpAgent-generated snippet — flag: %s, metric event: %s\n"
         "import flagsmith from 'flagsmith';\n"
         "\n"
         "await flagsmith.init({\n"
-        "  environmentID: '<YOUR_ENVIRONMENT_ID>', // Development env key\n"
+        "  environmentID: '%s', // toggle-wars Development env key\n"
         "  api: 'https://edge.api.flagsmith.com/api/v1/',\n"
         "});\n"
         "\n"
@@ -119,7 +125,7 @@ def build_sdk_snippet(flag, event):
         "document.getElementById('cta').textContent = value;\n"
         "\n"
         "// Record the conversion event when it happens:\n"
-        "flagsmith.track('%s');\n" % (flag, event, flag, event)
+        "flagsmith.track('%s');\n" % (flag, event, DEV_ENV_KEY, flag, event)
     )
 
 
