@@ -113,7 +113,7 @@ DEV_ENV_KEY = "MHSyYjVPRHPkaYLkdRHaCS"
 def build_sdk_snippet(flag, event):
     return (
         "// ExpAgent-generated snippet — flag: %s, metric event: %s\n"
-        "import flagsmith from 'flagsmith';\n"
+        "import flagsmith from '@flagsmith/flagsmith';\n"
         "\n"
         "await flagsmith.init({\n"
         "  environmentID: '%s', // toggle-wars Development env key\n"
