@@ -110,7 +110,11 @@ def resolve_feature(flag, env_key):
     if not feature_id:
         raise RuntimeError("feature get for '%s' returned no id" % flag)
     options = {}
-    for opt in data.get("multivariate_options", []):
+    # Real CLI v2.0.0 `feature get --json` returns the options under
+    # "variants" (verified live 2026-11-26: flag 305610, variant_b id
+    # 37289). Older shapes used "multivariate_options" — read both.
+    for opt in (data.get("variants", [])
+                + data.get("multivariate_options", [])):
         if opt.get("key"):
             options[opt["key"]] = opt["id"]
     return feature_id, options

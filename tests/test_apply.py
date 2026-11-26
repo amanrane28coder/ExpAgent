@@ -3,7 +3,11 @@
 executable on PATH that records its argv/stdin and returns canned JSON.
 
 The real CLI and the real Cloud project are never touched. The fake answers:
-  - `flagsmith feature get <flag> --json` -> {"id": 301244, multivariate_options [...]}
+  - `flagsmith feature get <flag> --json` -> {"id": 301244, variants [...]}
+    (the REAL CLI v2.0.0 shape, verified live 2026-11-26: options live
+    under "variants", each with id/value/weight/key — NOT
+    "multivariate_options", which is what the first version of this fake
+    wrongly returned and what hid the resolver bug until the real run.)
   - `flagsmith api .../experiment-metrics/ --input -` -> {"id": 344}
   - `flagsmith api .../experiments/ --input -` -> {"id": 397}
 Set FAKE_FLAGSMITH_FAIL=1 to make every call exit 1.
@@ -36,11 +40,13 @@ if os.environ.get("FAKE_FLAGSMITH_FAIL") == "1":
     sys.exit(1)
 if argv[:2] == ["feature", "get"]:
     print(json.dumps({"id": 301244, "name": argv[2],
-                      "multivariate_options": [
+                      "type": "multivariate",
+                      "default_value": "Buy now", "enabled": False,
+                      "variants": [
                           {"id": 36378, "key": "variant_b",
-                           "value": "Start free trial"},
+                           "value": "Start free trial", "weight": 0},
                           {"id": 36379, "key": "variant_c",
-                           "value": "Get started today"}]}))
+                           "value": "Get started today", "weight": 0}]}))
 elif "experiment-metrics" in " ".join(argv):
     print(json.dumps({"id": 344, "name": "signup_completed"}))
 elif "experiments" in " ".join(argv):
