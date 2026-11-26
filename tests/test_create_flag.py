@@ -355,6 +355,37 @@ def main():
         check("different variant value refuses to reuse",
               "does not match the plan" in r.stderr, r.stderr)
 
+        # 10. not-found detection must name the flag: an "environment
+        #    not found" error is a broken environment, not a missing
+        #    flag — it must fail loudly, never trigger a create.
+        sys.path.insert(0, str(ROOT / "agent"))
+        import create_flag as cf
+        check("is_not_found: 'environment not found' is not a missing "
+              "flag",
+              not cf.is_not_found(
+                  RuntimeError("flagsmith feature get failed (exit 1): "
+                               "environment not found"),
+                  "checkout-subhead"))
+        check("is_not_found: 'feature checkout-subhead not found' is a "
+              "missing flag",
+              cf.is_not_found(
+                  RuntimeError("flagsmith feature get failed (exit 1): "
+                               "feature checkout-subhead not found"),
+                  "checkout-subhead"))
+        # 11. missing flagsmith CLI -> exit 2, clean one-line error
+        #    (regression: uncaught FileNotFoundError traceback).
+        env = dict(os.environ)
+        env["PATH"] = "/usr/bin:/bin"
+        r = subprocess.run(
+            [sys.executable, str(ROOT / "agent" / "create_flag.py"),
+             str(plan_path), "--approve", "--audit-log", audit],
+            capture_output=True, text=True, cwd=ROOT, env=env)
+        check("missing CLI exits 2", r.returncode == 2,
+              "exit %d" % r.returncode)
+        check("missing CLI prints a one-line error, no traceback",
+              "flagsmith CLI not found" in r.stderr
+              and "Traceback" not in r.stderr, r.stderr)
+
     print("test_create_flag: %d passed, %d failed" % (passed, failed))
     return 0 if failed == 0 else 1
 

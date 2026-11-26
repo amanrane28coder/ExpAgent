@@ -8,6 +8,10 @@ The real CLI and the real Cloud project are never touched. The fake answers:
     under "variants", each with id/value/weight/key — NOT
     "multivariate_options", which is what the first version of this fake
     wrongly returned and what hid the resolver bug until the real run.)
+  - `flagsmith api .../featurestates/?feature=<id>` -> [feature state]
+    (current weights: variant_b 50, variant_c 0, control implied 50)
+  - `flagsmith api .../experiment-metrics/` (GET) -> [metric defs]
+    (the gate's known-events source: signup_completed, checkout_completed)
   - `flagsmith api .../experiment-metrics/ --input -` -> {"id": 344}
   - `flagsmith api .../experiments/ --input -` -> {"id": 397}
 Set FAKE_FLAGSMITH_FAIL=1 to make every call exit 1.
@@ -59,8 +63,30 @@ if argv[:2] == ["feature", "get"]:
                            "value": "Start free trial", "weight": 0},
                           {"id": 36379, "key": "variant_c",
                            "value": "Get started today", "weight": 0}]}))
+elif "featurestates" in " ".join(argv):
+    # GET .../featurestates/?feature=<id> -> the environment feature
+    # state: current weights live here (variant_b 50, variant_c 0,
+    # control implied 50). The shape is the real Flagsmith
+    # featurestate: "feature" is a bare int, multivariate values carry
+    # "percentage_allocation".
+    print(json.dumps([{"id": 1, "feature": 301244, "enabled": True,
+                       "feature_state_value": "Buy now",
+                       "multivariate_feature_state_values": [
+                           {"multivariate_feature_option": 36378,
+                            "percentage_allocation": 50},
+                           {"multivariate_feature_option": 36379,
+                            "percentage_allocation": 0}]}]))
 elif "experiment-metrics" in " ".join(argv):
-    print(json.dumps({"id": 344, "name": "signup_completed"}))
+    if "--input" in argv:
+        print(json.dumps({"id": 344, "name": "signup_completed"}))
+    else:
+        # GET .../experiment-metrics/ -> the metric definitions, the
+        # source of the gate's known-events list.
+        print(json.dumps([
+            {"id": 344, "name": "signup_completed",
+             "definition": {"version": 1, "event": "signup_completed"}},
+            {"id": 345, "name": "checkout_completed",
+             "definition": {"version": 1, "event": "checkout_completed"}}]))
 elif "experiments" in " ".join(argv):
     print(json.dumps({"id": 397, "name": "A/B test: checkout headline",
                       "status": "created"}))
@@ -117,9 +143,9 @@ def read_audit(tmp):
     return [json.loads(line) for line in log.read_text().splitlines()]
 
 
-def run_apply(tmp, fake_dir, extra_args, extra_env=None):
+def run_apply(tmp, fake_dir, extra_args, extra_env=None, plan=PLAN):
     plan_path = Path(tmp) / "plan.json"
-    plan_path.write_text(json.dumps(PLAN))
+    plan_path.write_text(json.dumps(plan))
     args = [sys.executable, str(APPLY), str(plan_path),
             "--audit-log", str(Path(tmp) / "audit.log")]
     args += extra_args
@@ -164,10 +190,23 @@ def main():
                        "--option-ids", '{"variant_b": 36378}'])
         check("approve exits 0", r.returncode == 0, r.stderr)
         calls = read_calls(tmp)
-        check("approve makes exactly 2 api calls", len(calls) == 2,
+        writes = [c for c in calls if "--input" in c["argv"]]
+        check("approve makes exactly 2 write calls", len(writes) == 2,
               "calls: %s" % calls)
-        if len(calls) == 2:
-            metric_call, exp_call = calls
+        reads = [c for c in calls if "--input" not in c["argv"]]
+        check("approve gates first: featurestates + metrics reads precede "
+              "the writes, and the full option map is fetched",
+              len(calls) == 5
+              and any("featurestates" in " ".join(c["argv"])
+                      for c in reads)
+              and any("experiment-metrics" in " ".join(c["argv"])
+                      for c in reads)
+              and any(c["argv"][:2] == ["feature", "get"] for c in reads)
+              and all(reads.index(c) < calls.index(writes[0])
+                      for c in reads),
+              "calls: %s" % calls)
+        if len(writes) == 2:
+            metric_call, exp_call = writes
             check("metric call payload has occurrence/up/event",
                   json.loads(metric_call["stdin"])["definition"]["event"]
                   == "signup_completed")
@@ -204,10 +243,18 @@ def main():
               r.returncode == 0, r.stderr)
         calls = read_calls(tmp)
         check("feature get called first",
-              len(calls) == 3 and calls[0]["argv"][:2] == ["feature", "get"],
+              len(calls) == 5 and calls[0]["argv"][:2] == ["feature", "get"],
               "calls: %s" % calls)
-        if len(calls) == 3:
-            exp_payload = json.loads(calls[2]["stdin"])
+        check("gate reads live state after the resolution",
+              len(calls) == 5
+              and "featurestates" in " ".join(calls[1]["argv"])
+              and "experiment-metrics" in " ".join(calls[2]["argv"]),
+              "calls: %s" % calls)
+        exp_calls = [c for c in calls if c["argv"][0] == "api"
+                     and "--input" in c["argv"]
+                     and "/experiments/" in " ".join(c["argv"])]
+        if len(exp_calls) == 1:
+            exp_payload = json.loads(exp_calls[0]["stdin"])
             check("resolved experiment uses option id 36378",
                   exp_payload["experiment_rollout"]
                   ["multivariate_feature_state_values"][0]
@@ -259,6 +306,48 @@ def main():
               "audit: %s" % audit)
         check("delete failure prints the orphan metric id",
               "metric 344" in r.stderr, r.stderr)
+
+        # 7. gate enforcement: a plan the gate would BLOCK cannot be
+        #    applied with --approve — exit 1, audit verdict refused, and
+        #    NO write calls (no metric, no experiment).
+        blocked_plan = dict(PLAN)
+        blocked_plan["metric"] = dict(PLAN["metric"])
+        blocked_plan["metric"]["event"] = "frobnicate"
+        Path(tmp, "calls.jsonl").unlink(missing_ok=True)
+        audit_before = len(read_audit(tmp))
+        r = run_apply(tmp, fake_dir, ["--approve"],
+                      plan=blocked_plan)
+        check("gate refusal exits 1", r.returncode == 1,
+              "exit %d" % r.returncode)
+        calls = read_calls(tmp)
+        check("gate refusal makes no write calls",
+              not [c for c in calls if "--input" in c["argv"]],
+              "calls: %s" % calls)
+        audit = read_audit(tmp)
+        check("gate refusal appends audit line with verdict refused",
+              len(audit) == audit_before + 1
+              and audit[-1]["verdict"] == "refused"
+              and audit[-1]["reason"] == "gate blocked this plan"
+              and any("not a known event" in reason
+                      for reason in audit[-1].get("reasons", [])),
+              "audit: %s" % audit)
+        check("gate refusal prints the block reasons",
+              "REFUSED: gate blocked this plan" in r.stdout
+              and "not a known event" in r.stdout, r.stdout)
+
+        # 8. a plan without a control variant fails cleanly — exit 2,
+        #    one-line error, no traceback (regression: uncaught
+        #    StopIteration from the control lookup).
+        no_control = dict(PLAN)
+        no_control["variants"] = [
+            {"key": "variant_b", "value": "Start free trial", "weight": 50},
+            {"key": "variant_c", "value": "Get started today", "weight": 50}]
+        r = run_apply(tmp, fake_dir, [], plan=no_control)
+        check("no-control plan exits 2", r.returncode == 2,
+              "exit %d" % r.returncode)
+        check("no-control plan prints a one-line error, no traceback",
+              "apply error: plan has no control variant" in r.stderr
+              and "Traceback" not in r.stderr, r.stderr)
 
     print("test_apply: %d passed, %d failed" % (passed, failed))
     return 0 if failed == 0 else 1

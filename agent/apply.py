@@ -30,6 +30,12 @@ import os
 import shlex
 import subprocess
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "gate"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gate as gate_mod
+import state as state_mod
 
 DEFAULT_ENV_KEY = "MHSyYjVPRHPkaYLkdRHaCS"  # toggle-wars, Development
 DEFAULT_AUDIT_LOG = "audit.log"
@@ -64,8 +70,10 @@ def experiment_payload(plan, feature_id, metric_id, option_ids):
     # identities got the literal string "control" from the SDK instead of the
     # headline copy (caught live 2026-11-26: alice saw "control" / variant
     # unknown on the demo page while bob correctly got "Start free trial").
-    control_value = next(v["value"] for v in plan["variants"]
-                         if v["key"] == "control")
+    control_value = next((v["value"] for v in plan["variants"]
+                          if v["key"] == "control"), None)
+    if control_value is None:
+        raise RuntimeError("plan has no control variant")
     rollout = {
         "enabled": True,
         "rollout_percentage": 100,
@@ -95,10 +103,14 @@ def run_flagsmith(argv, stdin_json=None):
         # Never inherit the caller's stdin: a child that reads it would
         # block forever on a pipe that never closes.
         kwargs["stdin"] = subprocess.DEVNULL
-    result = subprocess.run(
-        argv,
-        input=stdin_json,  # str: text=True below
-        capture_output=True, text=True, **kwargs)
+    try:
+        result = subprocess.run(
+            argv,
+            input=stdin_json,  # str: text=True below
+            capture_output=True, text=True, **kwargs)
+    except FileNotFoundError:
+        raise RuntimeError("flagsmith CLI not found — install CLI v2 "
+                           "(https://docs.flagsmith.com/clients/cli)")
     if result.returncode != 0:
         raise RuntimeError("flagsmith %s failed (exit %d): %s"
                            % (" ".join(argv[1:]), result.returncode,
@@ -131,8 +143,12 @@ def run_flagsmith_noparse(argv):
     """Run one `flagsmith ...` call where the response body is not JSON
     (a DELETE returns 204 No Content). Returns stdout on exit 0, raises
     RuntimeError otherwise."""
-    result = subprocess.run(argv, stdin=subprocess.DEVNULL,
-                            capture_output=True, text=True)
+    try:
+        result = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError("flagsmith CLI not found — install CLI v2 "
+                           "(https://docs.flagsmith.com/clients/cli)")
     if result.returncode != 0:
         raise RuntimeError("flagsmith %s failed (exit %d): %s"
                            % (" ".join(argv[1:]), result.returncode,
@@ -186,10 +202,12 @@ def main(argv):
         return 2
 
     before = None
+    base_state = None
     if state_path:
         try:
             with open(state_path) as f:
-                before = json.load(f).get("current_weights")
+                base_state = json.load(f)
+            before = base_state.get("current_weights")
         except (FileNotFoundError, json.JSONDecodeError) as e:
             print("apply error: cannot read state: %s" % e, file=sys.stderr)
             return 2
@@ -250,8 +268,45 @@ def main(argv):
               % ", ".join(missing), file=sys.stderr)
         return 2
 
-    exp_payload = experiment_payload(plan, feature_id, "<metric-id>",
-                                     option_ids)
+    try:
+        exp_payload = experiment_payload(plan, feature_id, "<metric-id>",
+                                         option_ids)
+    except RuntimeError as e:
+        print("apply error: %s" % e, file=sys.stderr)
+        return 2
+
+    # ---- gate enforcement: the gate guards the pipeline in code, not
+    # just in the README. --approve re-gates the plan against live state
+    # (merged over --state when given) and refuses on BLOCK, before any
+    # write. Dry-run does not gate (it makes no CLI calls by design).
+    if approve:
+        try:
+            gate_state = state_mod.build_state(
+                plan["flag"], env_key, base_state,
+                feature_id=feature_id if isinstance(feature_id, int)
+                else None,
+                option_ids=option_ids if isinstance(option_ids, dict)
+                else None)
+        except RuntimeError as e:
+            audit["verdict"] = "failed"
+            audit["error"] = str(e)
+            append_audit(audit_log, audit)
+            print("apply error: cannot read live flag state: %s" % e,
+                  file=sys.stderr)
+            return 2
+        reasons = gate_mod.check(plan, gate_state)
+        if reasons:
+            audit["verdict"] = "refused"
+            audit["reason"] = "gate blocked this plan"
+            audit["reasons"] = reasons
+            append_audit(audit_log, audit)
+            print("REFUSED: gate blocked this plan")
+            for r in reasons:
+                print("  - %s" % r)
+            return 1
+        print("== gate: PASS against live state (weights %s)"
+              % gate_state["current_weights"])
+
     metric_cmd = shell_cmd(["flagsmith", "api", metric_path, "--input", "-"],
                            metric_json)
 

@@ -66,8 +66,12 @@ def shell_cmd(argv):
 
 def run_flagsmith_json(argv):
     """Run one `flagsmith ...` call. Returns parsed JSON stdout."""
-    result = subprocess.run(argv, stdin=subprocess.DEVNULL,
-                            capture_output=True, text=True)
+    try:
+        result = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError("flagsmith CLI not found — install CLI v2 "
+                           "(https://docs.flagsmith.com/clients/cli)")
     if result.returncode != 0:
         raise RuntimeError("flagsmith %s failed (exit %d): %s"
                            % (" ".join(argv[1:]), result.returncode,
@@ -85,8 +89,12 @@ def run_flagsmith_text(argv):
     `feature create` / `feature variant add` print text, not JSON — never
     parse their output; verify with `feature get --json` instead.
     """
-    result = subprocess.run(argv, stdin=subprocess.DEVNULL,
-                            capture_output=True, text=True)
+    try:
+        result = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError("flagsmith CLI not found — install CLI v2 "
+                           "(https://docs.flagsmith.com/clients/cli)")
     if result.returncode != 0:
         raise RuntimeError("flagsmith %s failed (exit %d): %s"
                            % (" ".join(argv[1:]), result.returncode,
@@ -103,19 +111,22 @@ def get_feature(flag):
         return run_flagsmith_json(["flagsmith", "feature", "get",
                                    flag, "--json"])
     except RuntimeError as e:
-        if is_not_found(e):
+        if is_not_found(e, flag):
             return None
         raise
 
 
 # Substrings (lowercase) that mark a CLI error as "flag does not exist".
 # Anything else — auth failure, network error, crash — is a real error.
+# The message must also name the flag: an "environment not found" or
+# "project not found" error is a broken environment, not a missing flag,
+# and must fail loudly instead of triggering a create against it.
 NOT_FOUND_MARKERS = ("404", "not found", "does not exist", "no feature")
 
 
-def is_not_found(error):
+def is_not_found(error, flag):
     msg = str(error).lower()
-    return any(m in msg for m in NOT_FOUND_MARKERS)
+    return flag.lower() in msg and any(m in msg for m in NOT_FOUND_MARKERS)
 
 
 def option_value(opt):

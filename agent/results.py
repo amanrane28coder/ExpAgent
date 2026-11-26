@@ -37,8 +37,12 @@ USAGE = ("usage: results.py <experiment-id> [--env-key KEY]\n"
 
 def run_flagsmith(argv):
     """Run one `flagsmith ...` call. Returns parsed JSON stdout."""
-    result = subprocess.run(argv, stdin=subprocess.DEVNULL,
-                            capture_output=True, text=True)
+    try:
+        result = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError("flagsmith CLI not found — install CLI v2 "
+                           "(https://docs.flagsmith.com/clients/cli)")
     if result.returncode != 0:
         raise RuntimeError("flagsmith %s failed (exit %d): %s"
                            % (" ".join(argv[1:]), result.returncode,

@@ -27,7 +27,7 @@ track's own question, answered.
   variant_b to 100% via the update-flag endpoint; audit line written.
 - **Rollback proven** — experiment 663 deleted after creation; the list
   then showed only the pre-work experiment.
-- **Tests: 172/172 pass** (VM + Mac). **Agent compute: 0.118s median**
+- **Tests: 209/209 pass** (VM + Mac). **Agent compute: 0.118s median**
   (plan + gate + apply dry-run, 3 runs).
 - The gate caught a real bug in itself during testing (0% plans crashed
   instead of blocking) — fixed, rule unchanged.
@@ -39,10 +39,12 @@ track's own question, answered.
   CLI v2 + REST API. (The MCP server cannot start experiments, so the
   write path is CLI/API.)
 - **Impact** — prompt → checked plan in ~0.1s of compute; a human reads
-  and approves in under a minute. The same four objects by hand are
+  and approves it. The same four objects by hand are
   ~10 minutes of dashboard clicks (the brief's estimate, not a
   measurement). Two human gates (apply, ship); the agent never ships a
-  running or inconclusive experiment.
+  running experiment — whether an inconclusive result ships is the
+  human's call, made against the 95% rule printed at the decision
+  checkpoint.
 - **Creativity** — the decision boundary: the agent proposes, the human
   decides. The ship refusal is the safety story — it will not ship
   without evidence and a human naming the winner.
@@ -78,20 +80,23 @@ or rollback. That is what ExpAgent adds: the **checked plan + approval + log**,
 not the creation call. And it does not stop at setup: `results.py` is the
 decision checkpoint and `ship.py` rolls the winner out — so the agent covers
 the whole lifecycle, with a human approving at both ends (apply and ship) and
-zero autonomous production changes. The agent refuses to ship a running or
-inconclusive experiment: it never decides the winner itself.
+zero autonomous production changes. The agent refuses to ship a running
+experiment; whether an inconclusive result ships is the human's call,
+made against the 95% rule at the decision checkpoint. It never decides
+the winner itself.
 
 ## One-command run
 
 ```sh
-./tests/run_tests.sh          # full suite (plan + gate + apply + probe + status)
+./tests/run_tests.sh          # full suite (plan + gate + apply + probe + status + results + ship + create_flag + state)
 ```
 
 End-to-end on one prompt (dry-run — nothing touches Flagsmith):
 
 ```sh
 python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks" > /tmp/plan.json
-python3 gate/gate.py /tmp/plan.json examples/state-example.json
+python3 agent/state.py checkout-headline --out /tmp/state-live.json   # live flag state for the gate
+python3 gate/gate.py /tmp/plan.json /tmp/state-live.json
 python3 agent/create_flag.py /tmp/plan.json     # dry-run: prints commands
 python3 agent/create_flag.py /tmp/plan.json --approve  # real flag create (needs login)
 python3 agent/apply.py /tmp/plan.json            # dry-run: prints commands
@@ -127,6 +132,16 @@ BLOCKs on:
 - a staging-only flag changed in production
 
 The gate recommends only — it approves nothing. A human approves.
+
+The gate checks live state, not a fixture: `agent/state.py <flag>`
+reads the flag's current weights and the project's metric events from
+Flagsmith and writes the state JSON the gate consumes (slow metadata —
+kill-switch lists, staging lists — comes from an optional `--state`
+base file, or defaults). `apply.py --approve` re-runs the gate against
+that live state and refuses on BLOCK before any write, so a plan the
+gate would block cannot be applied even if the human forgets to run
+the gate first. The fixture `examples/state-example.json` is only the
+probe's base state and an optional base for `state.py`.
 
 That approval is a process control, not a cryptographic one: `--approve`
 is a flag run by a human, and ExpAgent enforces the two-gate order and
@@ -323,6 +338,7 @@ with it.
 
 ```
 agent/plan.py    prompt -> plan JSON (stdlib only)
+agent/state.py   flag -> live flag state JSON for the gate (CLI v2)
 agent/create_flag.py plan -> multivariate flag, --approve only (idempotent)
 agent/apply.py   plan -> flagsmith api calls, --approve only
 agent/status.py  experiment id -> short human-readable summary (read-only)
@@ -334,7 +350,8 @@ demo-app/        static checkout page + the SDK snippet plan.py generates
 examples/        3 prompts + a flag-state fixture for the gate
 tests/           test_plan.py, test_gate.py, test_apply.py,
                  test_probe.py, test_status.py, test_results.py,
-                 test_ship.py, test_create_flag.py, run_tests.sh
+                 test_ship.py, test_create_flag.py, test_state.py,
+                 run_tests.sh
 audit.log        appended by create_flag.py / apply.py / ship.py runs
                  (created on first run)
 ```
@@ -383,7 +400,7 @@ shell `time` builtin, 3 runs, from the repo root:
 gate, and printing the dry-run apply commands. It does not include the
 human reading and approving the plan, or the real Flagsmith API calls on a
 live apply. The honest video claim is: prompt in, checked plan out in
-~0.1s of compute; a human reads it and approves in under a minute.
+~0.1s of compute; a human reads it and approves it.
 
 The manual comparison is the brief's ~10-minute estimate for the same four
 objects by hand — dashboard clicks for flag + variant + metric + experiment

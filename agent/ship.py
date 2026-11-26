@@ -67,8 +67,12 @@ def run_flagsmith(argv, stdin_json=None):
     kwargs = {}
     if stdin_json is None:
         kwargs["stdin"] = subprocess.DEVNULL
-    result = subprocess.run(
-        argv, input=stdin_json, capture_output=True, text=True, **kwargs)
+    try:
+        result = subprocess.run(
+            argv, input=stdin_json, capture_output=True, text=True, **kwargs)
+    except FileNotFoundError:
+        raise RuntimeError("flagsmith CLI not found — install CLI v2 "
+                           "(https://docs.flagsmith.com/clients/cli)")
     if result.returncode != 0:
         raise RuntimeError("flagsmith %s failed (exit %d): %s"
                            % (" ".join(argv[1:]), result.returncode,

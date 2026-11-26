@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.."
 
 fail=0
-for t in tests/test_plan.py tests/test_gate.py tests/test_apply.py tests/test_probe.py tests/test_status.py tests/test_results.py tests/test_ship.py tests/test_create_flag.py; do
+for t in tests/test_plan.py tests/test_gate.py tests/test_apply.py tests/test_probe.py tests/test_status.py tests/test_results.py tests/test_ship.py tests/test_create_flag.py tests/test_state.py; do
   echo "== $t"
   if ! python3 "$t"; then
     fail=1
