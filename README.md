@@ -13,6 +13,10 @@ or MCP; saves real time; a human approves changes; clear output.
 prompt ──► plan (agent/plan.py) ──► gate (gate/gate.py) ──► human approves
                                                               │
                                                               ▼
+                                    create flag (agent/create_flag.py --approve)
+                                    multivariate flag + variants from the plan
+                                                              │
+                                                              ▼
                                               apply (agent/apply.py --approve)
                                               metric + experiment via CLI v2
                                               + audit log line + rollback cmd
@@ -46,6 +50,8 @@ End-to-end on one prompt (dry-run — nothing touches Flagsmith):
 ```sh
 python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks" > /tmp/plan.json
 python3 gate/gate.py /tmp/plan.json examples/state-example.json
+python3 agent/create_flag.py /tmp/plan.json     # dry-run: prints commands
+python3 agent/create_flag.py /tmp/plan.json --approve  # real flag create (needs login)
 python3 agent/apply.py /tmp/plan.json            # dry-run: prints commands
 python3 agent/apply.py /tmp/plan.json --approve  # real apply (needs flagsmith login)
 python3 gate/probe.py                            # 5 adversarial + 1 clean plan
@@ -106,6 +112,31 @@ and the bare `%` made %-formatting raise `ValueError` — any 0% plan
 crashed the gate with a traceback instead of a BLOCK verdict. It is now
 `0%%`, so the reason prints. The old `test_gate.py` 0% case had passed
 only because the traceback echoed the reason string.
+
+## Creating the flag (CLI v2 — NOT MCP)
+
+Before this command, the flag was the one piece ExpAgent did not create:
+`checkout-headline` was made by hand in the dashboard. `create_flag.py`
+closes that gap: the flag comes from the plan like everything else, so the
+pipeline is prompt → plan → gate → flag → metric → experiment → results →
+ship. Mechanism (Flagsmith's own "Set Up an Experiment with a Coding
+Agent" doc): create the flag with the control variant's VALUE as the flag
+value, then add each non-control variation with its key and weight 0. Every
+variation needs a key — one without a key records no exposures. `control`
+is reserved for the flag's own value, so the flag's initial value IS the
+control copy ("Buy now"), not the literal string "control".
+
+```sh
+flagsmith feature create checkout-headline --value "Buy now" --enabled
+flagsmith feature variant add checkout-headline --value "Start free trial" --key variant_b --weight 0
+```
+
+Idempotent: if the flag already exists it is reused (no re-create) and only
+missing variants are added — a re-run on `checkout-headline` prints "already
+exists (id 305610)" and exits 0. Dry-run (default) prints the commands and
+runs nothing; `--approve` creates. The create/variant-add calls return text,
+not JSON, so the command never parses their output — it re-reads the flag
+with `feature get --json` to verify the result, and appends an audit line.
 
 ## The applier (CLI v2 + REST API — NOT MCP)
 
@@ -224,6 +255,7 @@ experiment is started and two identities show two variants.
 
 ```
 agent/plan.py    prompt -> plan JSON (stdlib only)
+agent/create_flag.py plan -> multivariate flag, --approve only (idempotent)
 agent/apply.py   plan -> flagsmith api calls, --approve only
 agent/status.py  experiment id -> short human-readable summary (read-only)
 agent/results.py experiment id -> decision checkpoint (read-only)
@@ -234,8 +266,9 @@ demo-app/        static checkout page + the SDK snippet plan.py generates
 examples/        3 prompts + a flag-state fixture for the gate
 tests/           test_plan.py, test_gate.py, test_apply.py,
                  test_probe.py, test_status.py, test_results.py,
-                 test_ship.py, run_tests.sh
-audit.log        appended by apply.py / ship.py runs (created on first run)
+                 test_ship.py, test_create_flag.py, run_tests.sh
+audit.log        appended by create_flag.py / apply.py / ship.py runs
+                 (created on first run)
 ```
 
 ## Tests
@@ -258,7 +291,14 @@ a running experiment. The ship tests (`tests/test_ship.py`) assert the
 refusals (running experiment, unknown winner — no PUT, no audit), the
 dry-run (prints the rollout, sends nothing), and the approved ship (one
 PUT, winner 100 / others 0, base value untouched, audit line appended);
-a control win sets every option to 0.
+a control win sets every option to 0. The create_flag tests
+(`tests/test_create_flag.py`) run against a fake `flagsmith` that keeps
+flag state in a file, so `feature get` reflects what `feature create` /
+`feature variant add` did: they assert the dry-run prints both commands
+and calls nothing, the approve path creates the flag with the control
+value and adds each variant with its key and weight 0, an existing flag
+is reused with nothing added, a flag with a missing variant gets only
+that variant, and `--help` / bad plans exit cleanly.
 
 ## Timing (measured)
 
@@ -289,7 +329,8 @@ objects by hand — dashboard clicks for flag + variant + metric + experiment
    ~10 min of dashboard clicks (brief's estimate), one wrong weight breaks
    the test.
 3. Prompt: one sentence in, plan out — flag, variants, metric, split,
-   code. The agent proposes; the human approves.
+   code. The agent creates the flag from the plan (this one already
+   exists, so it reuses it). The agent proposes; the human approves.
 4. Gate: the probe BLOCKs bad plans (weights 99, 0% variant, unknown
    metric) with the reason shown — and it caught a real bug in itself
    (0% crash, fixed).

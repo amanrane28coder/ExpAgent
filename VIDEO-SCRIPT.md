@@ -16,9 +16,9 @@ video. This cut is built to hit all four: it opens on the flip (the most
 visual proof Flagsmith is doing real work), it leads with the track's own
 question — where the agent stops and asks a person — and it proves impact
 with a real bug the gate caught, not just the time claim. It also shows the
-full lifecycle now: the agent doesn't stop at setup, it reports results
-and ships the winner — and it refuses to ship without a conclusive result
-and a human's call, which is the safety story. The ~10-minute manual
+full lifecycle now: the agent creates the flag from the plan, reports
+results and ships the winner — and it refuses to ship without a conclusive
+result and a human's call, which is the safety story. The ~10-minute manual
 figure is the brief's estimate, not a measurement — say "about ten
 minutes" and never "measured". Do not claim a winner: the experiment is
 running but has no traffic yet, so there are no results to report.
@@ -35,8 +35,10 @@ minutes of dashboard clicks, and one wrong weight silently breaks the test."
 **Shot 3 — prompt to plan.** "ExpAgent takes one sentence — A/B test
 checkout headline, fifty-fifty, measure sign-ups, two weeks — and turns it
 into a plan: the flag, the variants, the metric, the split, and the snippet.
-The plan runs in about a tenth of a second. The interesting part isn't what
-the agent does on its own — it's where it stops and asks a person."
+The agent creates the flag from the plan — this one already exists, so it
+reuses it. The plan runs in about a tenth of a second. The interesting part
+isn't what the agent does on its own — it's where it stops and asks a
+person."
 
 **Shot 4 — gate blocks.** "Before anything reaches Flagsmith, a
 deterministic gate checks the plan. A 99-percent split, a zero-percent
@@ -74,9 +76,12 @@ approval, the audit, and the rollback around every Flagsmith experiment."
    narration over it yet — let the two buttons land, then start talking.
 2. **Problem** — terminal with the plan command (shot 3 covers the visual;
    narration runs over the plan output). No separate capture.
-3. **Prompt → plan** — run live (safe, no Flagsmith call):
+3. **Prompt → plan → flag** — run live (safe, no Flagsmith write):
    `python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks"`
-   Show the plan JSON: flag, variants, metric, split, snippet.
+   Show the plan JSON: flag, variants, metric, split, snippet. Then
+   `python3 agent/create_flag.py /tmp/plan.json --approve` — the flag
+   already exists (id 305610), so it reuses it and adds nothing. Safe and
+   idempotent; do NOT create a second flag on camera.
 4. **Gate BLOCK** — run live (safe, local only): `python3 gate/probe.py`
    Show the 99-weights plan BLOCKing with its reason, and the 0% case
    BLOCKing (not crashing — that was the bug the probe caught).
