@@ -2,14 +2,19 @@
 """Tests for agent/ship.py — real subprocess runs against a FAKE
 `flagsmith` executable on PATH that records argv + stdin and returns
 canned JSON shaped like the real API (experiment 685, verified live
-2026-11-26; featurestates list shaped like the real one).
+2026-11-26; update-flag read/write shaped like Flagsmith's own docs,
+verified live 2026-11-26 when the legacy featurestates PUT 400'd on
+this v2-versioned environment).
 
 The fake dispatches on argv:
   - "experiments/<id>/" -> the experiment (status from FAKE_EXP_STATUS,
-    default "running"; "completed" for the ship path).
-  - "featurestates/" (no --method) -> list with the feature state for
-    checkout-headline (id 9001, variant_b at 50) plus one other flag.
-  - "--method PUT" -> records stdin, echoes it back as the updated doc.
+    default "running"; "completed" for the ship path; rollout decision
+    from FAKE_ROLLOUT_DECISION / FAKE_ROLLOUT_VARIANT, default
+    "variant"/37289 when completed, None/None when running).
+  - "__future__/.../features/<id>/" (no --method) -> the flag state in
+    the environment (variant_b at weight 50).
+  - "--method PATCH" -> records stdin, echoes the new weights back as
+    the updated flag state.
 
 The real CLI and the real Cloud project are never touched.
 Set FAKE_FLAGSMITH_FAIL=1 to make every call exit 1.
@@ -38,9 +43,17 @@ if log_path:
 if os.environ.get("FAKE_FLAGSMITH_FAIL") == "1":
     print("fake flagsmith: simulated failure", file=sys.stderr)
     sys.exit(1)
-if "--method" in argv and "PUT" in argv:
-    # Echo the PUT body back as the updated feature state.
-    print(stdin)
+if "--method" in argv and "PATCH" in argv:
+    # Echo the new weights back as the updated flag state, the way the
+    # real update-flag endpoint responds (complete flag state).
+    body = json.loads(stdin) if stdin else {}
+    variants = (body.get("environment_default") or {}).get("variants") or []
+    print(json.dumps({
+        "environment_default": {
+            "enabled": True,
+            "value": {"type": "string", "value": "Buy now"},
+            "variants": variants},
+        "segment_overrides": []}))
     sys.exit(0)
 joined = " ".join(argv)
 if "experiments/" in joined:
@@ -77,23 +90,15 @@ if "experiments/" in joined:
         "ended_at": None,
     }))
     sys.exit(0)
-if "featurestates/" in joined:
-    print(json.dumps([
-        # Real `featurestates/` list shape (verified live 2026-11-26):
-        # "feature" is a bare int id, NOT a nested dict. The dict shape
-        # below (state 9002) is the environment-document shape — ship.py
-        # must read both.
-        {"id": 9001, "feature": 305610,
-         "enabled": True,
-         "feature_state_value": {"type": "string", "value": "Buy now"},
-         "multivariate_feature_state_values": [
-             {"multivariate_feature_option": 37289,
-              "percentage_allocation": 50.0}]},
-        {"id": 9002, "feature": {"id": 301244, "name": "checkout-cta"},
-         "enabled": True,
-         "feature_state_value": {"type": "string", "value": "Buy now"},
-         "multivariate_feature_state_values": []},
-    ]))
+if "__future__" in joined and "/features/" in joined:
+    # Update-flag GET: the flag's state in the environment, variant_b
+    # at weight 50 (matches the real shape in Flagsmith's docs).
+    print(json.dumps({
+        "environment_default": {
+            "enabled": True,
+            "value": {"type": "string", "value": "Buy now"},
+            "variants": [{"id": 37289, "weight": 50.0}]},
+        "segment_overrides": []}))
     sys.exit(0)
 print("fake flagsmith: unexpected call %r" % (argv,), file=sys.stderr)
 sys.exit(1)
@@ -179,8 +184,8 @@ def main():
               "'variant_b': 100" in r.stdout, r.stdout)
         check("dry-run prints before allocations",
               "'variant_b': 50" in r.stdout, r.stdout)
-        check("dry-run sends no PUT",
-              all("PUT" not in c["argv"] for c in read_calls(tmp)),
+        check("dry-run sends no PATCH",
+              all("PATCH" not in c["argv"] for c in read_calls(tmp)),
               "calls: %s" % read_calls(tmp))
         check("dry-run writes no audit", read_audit(tmp) == [])
 
@@ -196,26 +201,21 @@ def main():
         check("approve prints rollback with before allocations",
               "rollback" in r.stdout and "'variant_b': 50" in r.stdout,
               r.stdout)
-        puts = [c for c in read_calls(tmp) if "PUT" in c["argv"]]
-        check("approve sends exactly one PUT", len(puts) == 1,
+        puts = [c for c in read_calls(tmp) if "PATCH" in c["argv"]]
+        check("approve sends exactly one PATCH", len(puts) == 1,
               "calls: %s" % read_calls(tmp))
         if puts:
             body = json.loads(puts[0]["stdin"])
-            allocs = body["multivariate_feature_state_values"]
-            check("PUT sets variant_b to 100",
-                  allocs == [{"multivariate_feature_option": 37289,
-                              "percentage_allocation": 100}],
+            check("PATCH sets variant_b to weight 100",
+                  body == {"environment_default": {"variants": [
+                      {"id": 37289, "weight": 100}]}},
                   "body: %s" % puts[0]["stdin"])
-            check("PUT targets featurestates/9001/",
-                  "featurestates/9001/" in " ".join(puts[0]["argv"]),
+            check("PATCH targets the update-flag endpoint",
+                  "__future__/environments/" in " ".join(puts[0]["argv"])
+                  and "/features/305610/" in " ".join(puts[0]["argv"]),
                   "argv: %s" % puts[0]["argv"])
-            check("PUT keeps the base value",
-                  body["feature_state_value"] == {"type": "string",
-                                                  "value": "Buy now"},
-                  "body: %s" % puts[0]["stdin"])
-            check("PUT keeps the feature id as the bare int",
-                  body["feature"] == 305610,
-                  "body: %s" % puts[0]["stdin"])
+        check("approve prints after allocations from the response",
+              "after: {'variant_b': 100}" in r.stdout, r.stdout)
         audit_rows = read_audit(tmp)
         check("approve appends one audit line", len(audit_rows) == 1,
               "audit: %s" % audit_rows)
@@ -223,7 +223,8 @@ def main():
             check("audit line is a ship by aman",
                   audit_rows[0]["action"] == "ship"
                   and audit_rows[0]["who"] == "aman"
-                  and audit_rows[0]["winner"] == "variant_b",
+                  and audit_rows[0]["winner"] == "variant_b"
+                  and audit_rows[0]["via"] == "update-flag (__future__)",
                   "audit: %s" % audit_rows)
 
         # 4. control winner: all options to 0 (decision must be
@@ -235,13 +236,12 @@ def main():
                      extra_env={"FAKE_EXP_STATUS": "completed",
                                 "FAKE_ROLLOUT_DECISION": "control"})
         check("control winner exits 0", r.returncode == 0, r.stderr)
-        puts = [c for c in read_calls(tmp) if "PUT" in c["argv"]]
+        puts = [c for c in read_calls(tmp) if "PATCH" in c["argv"]]
         if puts:
-            allocs = json.loads(
-                puts[0]["stdin"])["multivariate_feature_state_values"]
-            check("control win sets variant_b to 0",
-                  allocs == [{"multivariate_feature_option": 37289,
-                              "percentage_allocation": 0}],
+            variants = json.loads(
+                puts[0]["stdin"])["environment_default"]["variants"]
+            check("control win sets variant_b weight to 0",
+                  variants == [{"id": 37289, "weight": 0}],
                   "body: %s" % puts[0]["stdin"])
 
         # 5. unknown winner: refused, no PUT
@@ -253,8 +253,8 @@ def main():
                      extra_env={"FAKE_EXP_STATUS": "completed"})
         check("unknown winner refused (exit 1)",
               r.returncode == 1, "exit %d" % r.returncode)
-        check("unknown winner sends no PUT",
-              all("PUT" not in c["argv"] for c in read_calls(tmp)),
+        check("unknown winner sends no PATCH",
+              all("PATCH" not in c["argv"] for c in read_calls(tmp)),
               "calls: %s" % read_calls(tmp))
         check("unknown winner writes no audit",
               len(read_audit(tmp)) == before_n)
@@ -288,8 +288,8 @@ def main():
             check("mismatch refused: %s (exit 1)" % label,
                   r.returncode == 1, "exit %d: %s"
                   % (r.returncode, r.stdout))
-            check("mismatch sends no PUT: %s" % label,
-                  all("PUT" not in c["argv"] for c in read_calls(tmp)),
+            check("mismatch sends no PATCH: %s" % label,
+                  all("PATCH" not in c["argv"] for c in read_calls(tmp)),
                   "calls: %s" % read_calls(tmp))
             check("mismatch writes no audit: %s" % label,
                   len(read_audit(tmp)) == before_n)

@@ -211,12 +211,18 @@ or a variant on the flag, or `--winner` disagrees with the experiment's
 recorded rollout decision (`rollout_decision` / `rollout_variant`, set
 when the experiment is completed in the dashboard) — a `disable`
 decision, a missing decision, or an unknown decision value is refused
-too, so a ship can never contradict what was decided. Mechanism: GET the feature state for the flag,
-set the winner's multivariate allocation to 100 and every other option to
-0 (a control win sets all options to 0), PUT the whole document back to
-`api/v1/environments/<key>/featurestates/<id>/`. Dry-run by default;
-`--approve` ships it, appends an audit line, and prints the rollback
-(the previous allocations).
+too, so a ship can never contradict what was decided. Mechanism: GET the
+flag's current weights, then PATCH the variant weights to winner 100 /
+everything else 0 (a control win sets all options to 0) through
+Flagsmith's experimental update-flag endpoint
+(`PATCH api/__future__/environments/<key>/features/<feature-id>/`).
+The legacy `featurestates/<id>/` PUT returns 400 on this environment —
+it uses Feature Versioning v2 — and the update-flag endpoint is the
+versioning-agnostic replacement (same request on v1 and v2, publishes a
+new version per call on v2). The published state is read back from the
+PATCH response and verified before the audit line is written. Dry-run by
+default; `--approve` ships it, appends an audit line, and prints the
+rollback (the previous weights as a PATCH).
 
 ```sh
 python3 agent/results.py 685
