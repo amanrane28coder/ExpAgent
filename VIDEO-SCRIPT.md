@@ -15,8 +15,11 @@ The judges score four things: Use of Flagsmith, Impact, Creativity, Demo
 video. This cut is built to hit all four: it opens on the flip (the most
 visual proof Flagsmith is doing real work), it leads with the track's own
 question — where the agent stops and asks a person — and it proves impact
-with a real bug the gate caught, not just the time claim. The ~10-minute
-manual figure is the brief's estimate, not a measurement — say "about ten
+with a real bug the gate caught, not just the time claim. It also shows the
+full lifecycle now: the agent doesn't stop at setup, it reports results
+and ships the winner — and it refuses to ship without a conclusive result
+and a human's call, which is the safety story. The ~10-minute manual
+figure is the brief's estimate, not a measurement — say "about ten
 minutes" and never "measured". Do not claim a winner: the experiment is
 running but has no traffic yet, so there are no results to report.
 
@@ -51,7 +54,14 @@ experiment is created, not started, until a human starts it."
 drives the page — that's the flip you saw at the start. One click sends the
 signup_completed event the plan measures."
 
-**Shot 7 — rollback and close.** "And if it's wrong, one command deletes
+**Shot 7 — results and the refusal to ship.** "The experiment is still
+running, so there is no winner to report — and the agent won't invent
+one. The results command says so plainly: the numbers live in the
+dashboard, and the ship rule is ninety-five percent chance to be best.
+Ask it to ship now and it refuses — the experiment is still running. It
+only ships a completed experiment, with a human naming the winner."
+
+**Shot 8 — rollback and close.** "And if it's wrong, one command deletes
 the experiment. We proved the rollback on the first run, and the audit log
 shows it. One prompt, checked, approved, applied. ExpAgent — the gate, the
 approval, the audit, and the rollback around every Flagsmith experiment."
@@ -79,14 +89,20 @@ approval, the audit, and the rollback around every Flagsmith experiment."
 6. **Flip explained + metric** — back to the carol tab, click the button:
    the log line "event sent: signup_completed" appears. Then the alice tab
    for contrast.
-7. **Rollback + close** — do NOT delete 685 on camera (it is the live
+7. **Results + ship refusal** — run live (both read-only / refusing,
+   safe): `python3 agent/results.py 685` (shows "no computed results"
+   and the 95% rule), then `python3 agent/ship.py 685 --winner variant_b
+   --approve` (refuses: experiment still running). This is the safety
+   beat — the agent will not ship without evidence and a human's call.
+   Do NOT end 685 to demo a real ship; the flip needs it running.
+8. **Rollback + close** — do NOT delete 685 on camera (it is the live
    experiment). Show the proven rollback instead: `grep 663 audit.log`
    (the 19:42 IST rollback of experiment 663) and the experiment-list
    output showing only 397 after the delete. Close on the repo:
    `github.com/amanrane28coder/ExpAgent`.
 
 Add a one-word text label per shot in editing if easy (Flip / Problem /
-Plan / Gate / Approve / Live / Rollback); if not, skip — the narration
+Plan / Gate / Approve / Live / Results / Rollback); if not, skip — the narration
 carries the structure.
 
 ## Merge (after recording)
@@ -95,7 +111,7 @@ carries the structure.
 ffmpeg -i screen.mp4 -i voice.m4a -c:v copy -c:a aac -shortest expagent-demo.mp4
 ```
 
-Keep it under 3 minutes (target ~2:10). Upload as unlisted to YouTube;
+Keep it under 3 minutes (target ~2:25). Upload as unlisted to YouTube;
 the submission needs the link before Sun Nov 29, 20:00 IST.
 
 ## Do NOT do on camera

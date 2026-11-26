@@ -16,12 +16,24 @@ prompt ──► plan (agent/plan.py) ──► gate (gate/gate.py) ──► hu
                                               apply (agent/apply.py --approve)
                                               metric + experiment via CLI v2
                                               + audit log line + rollback cmd
+                                                              │
+                                                              ▼
+                                        run ──► results (agent/results.py)
+                                                      │  human reads the
+                                                      │  dashboard, ends it
+                                                      ▼
+                                              ship (agent/ship.py --approve)
+                                              winner to 100% + audit line
 ```
 
 The stock Flagsmith setup prompt creates a flag + metric + experiment. It does
 not validate the plan, show a diff, guard a bad split, or leave an audit trail
 or rollback. That is what ExpAgent adds: the **checked plan + approval + log**,
-not the creation call.
+not the creation call. And it does not stop at setup: `results.py` is the
+decision checkpoint and `ship.py` rolls the winner out — so the agent covers
+the whole lifecycle, with a human approving at both ends (apply and ship) and
+zero autonomous production changes. The agent refuses to ship a running or
+inconclusive experiment: it never decides the winner itself.
 
 ## One-command run
 
@@ -38,6 +50,9 @@ python3 agent/apply.py /tmp/plan.json            # dry-run: prints commands
 python3 agent/apply.py /tmp/plan.json --approve  # real apply (needs flagsmith login)
 python3 gate/probe.py                            # 5 adversarial + 1 clean plan
 python3 agent/status.py 663                      # read one experiment (needs login)
+python3 agent/results.py 685                     # decision checkpoint (read-only)
+python3 agent/ship.py 685 --winner variant_b     # dry-run: prints the rollout
+python3 agent/ship.py 685 --winner variant_b --approve  # real ship (needs login)
 ```
 
 ## Example prompts and expected verdicts
@@ -143,6 +158,46 @@ Read-only — it never creates, starts, or deletes anything.
 `--dry-run` prints the command and runs nothing; `--help` prints usage.
 Exit 0 on success, 2 on error.
 
+## Results and shipping the winner
+
+`python3 agent/results.py <experiment-id>` is the decision checkpoint. It
+prints status, feature, metrics, and any rollout decision the API carries —
+and it says plainly that computed results (win probability, lift, enrolled
+users) are NOT in the experiment API response: Flagsmith computes them on
+demand in the dashboard (Refresh results, at most once every 5 minutes).
+It prints the ship rule instead of inventing numbers: a variation at ≥95%
+chance to be best is the recommendation; a 95% credible interval crossing
+zero means inconclusive — do not ship.
+
+`python3 agent/ship.py <experiment-id> --winner <key>` rolls the winner
+out to 100% of users. It is the second human gate: the human reads the
+dashboard results, ends the experiment there (which freezes results and
+unlocks the flag), and names the winner here. The agent only executes.
+
+Refusals (exit 1, nothing changed): the experiment is not `completed`
+(a running experiment is never shipped), or `--winner` is not `control`
+or a variant on the flag. Mechanism: GET the feature state for the flag,
+set the winner's multivariate allocation to 100 and every other option to
+0 (a control win sets all options to 0), PUT the whole document back to
+`api/v1/environments/<key>/featurestates/<id>/`. Dry-run by default;
+`--approve` ships it, appends an audit line, and prints the rollback
+(the previous allocations).
+
+```sh
+python3 agent/results.py 685
+# experiment 685: A/B test: checkout headline
+#   status: running (started_at: 2026-11-26T15:56:13.789522Z, ended_at: —)
+#   ...
+#   computed results: not in this API response — open the experiment in
+#   Flagsmith Cloud and click Refresh results (at most once every 5 minutes).
+#   decision: none yet — experiment still running.
+
+python3 agent/ship.py 685 --winner variant_b --approve
+# REFUSED: experiment 685 is running — ExpAgent only ships a completed
+# experiment. Read the results in the dashboard, end the experiment there,
+# then ship.
+```
+
 ## The live demo (demo-app/)
 
 `demo-app/index.html` is the checkout page the experiment drives. It reads
@@ -153,7 +208,7 @@ identities to see two variants:
 ```sh
 cd demo-app && python3 -m http.server 8000
 # http://localhost:8000/?identity=alice
-# http://localhost:8000/?identity=bob
+# http://localhost:8000/?identity=carol
 ```
 
 The page shows the identity in use, the flag value, and which variant it
@@ -171,13 +226,16 @@ experiment is started and two identities show two variants.
 agent/plan.py    prompt -> plan JSON (stdlib only)
 agent/apply.py   plan -> flagsmith api calls, --approve only
 agent/status.py  experiment id -> short human-readable summary (read-only)
+agent/results.py experiment id -> decision checkpoint (read-only)
+agent/ship.py    experiment id + winner -> rollout to 100%, --approve only
 gate/gate.py     deterministic checks, exit 0/1/2
 gate/probe.py    5 adversarial + 1 clean plan through the real gate
 demo-app/        static checkout page + the SDK snippet plan.py generates
 examples/        3 prompts + a flag-state fixture for the gate
 tests/           test_plan.py, test_gate.py, test_apply.py,
-                 test_probe.py, test_status.py, run_tests.sh
-audit.log        appended by apply.py runs (created on first run)
+                 test_probe.py, test_status.py, test_results.py,
+                 test_ship.py, run_tests.sh
+audit.log        appended by apply.py / ship.py runs (created on first run)
 ```
 
 ## Tests
@@ -193,7 +251,14 @@ apply exits 2 with a `failed` audit line. The probe runner
 through the real gate in one command. The status tests
 (`tests/test_status.py`) run `agent/status.py` against a fake `flagsmith`
 returning a canned experiment shaped like the real experiment 663, and
-assert `--help` / `--dry-run` make no CLI call.
+assert `--help` / `--dry-run` make no CLI call. The results tests
+(`tests/test_results.py`) assert the checkpoint prints the status and the
+honest "not in this API response" line and invents no rollout decision for
+a running experiment. The ship tests (`tests/test_ship.py`) assert the
+refusals (running experiment, unknown winner — no PUT, no audit), the
+dry-run (prints the rollout, sends nothing), and the approved ship (one
+PUT, winner 100 / others 0, base value untouched, audit line appended);
+a control win sets every option to 0.
 
 ## Timing (measured)
 
@@ -232,7 +297,10 @@ objects by hand — dashboard clicks for flag + variant + metric + experiment
    running; audit log shows the decision; Flagsmith Cloud dashboard shows
    the 50/50 split.
 6. Live flip explained; a click sends `signup_completed`.
-7. Rollback: one command deletes the experiment (proven on 663, audit log
+7. Results: `results.py` shows no computed results yet and the 95% ship
+   rule; `ship.py --approve` refuses — 685 is still running. The agent
+   never ships without evidence and a human naming the winner.
+8. Rollback: one command deletes the experiment (proven on 663, audit log
    shows it). Close: "One prompt, checked, approved, applied. Repo on
    screen."
 
