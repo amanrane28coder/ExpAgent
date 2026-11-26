@@ -70,6 +70,26 @@ def run_flagsmith(argv, stdin_json=None):
                            % (" ".join(argv[1:]), result.stdout[:200]))
 
 
+def _feature_id(value):
+    """Feature reference in a featurestate: the list endpoint returns a
+    bare int id, the environment document returns a nested dict. The
+    real `featurestates/` list returns the int (caught live 2026-11-26:
+    ship.py crashed on `f.get("id")` because feature was 306078, not
+    {"id": 306078})."""
+    if isinstance(value, dict):
+        return value.get("id")
+    return value
+
+
+def _option_id(value):
+    """multivariate_feature_option: int id in the list endpoint, nested
+    dict in the environment document. Read both, write neither (the PUT
+    sends the document back as received)."""
+    if isinstance(value, dict):
+        return value.get("id")
+    return value
+
+
 def append_audit(path, entry):
     with open(path, "a") as f:
         f.write(json.dumps(entry) + "\n")
@@ -154,8 +174,7 @@ def main(argv):
         return 2
     state = None
     for s in states:
-        f = s.get("feature") or {}
-        if f.get("id") == feature_id:
+        if _feature_id(s.get("feature")) == feature_id:
             state = s
             break
     if state is None:
@@ -166,7 +185,7 @@ def main(argv):
     mv_values = state.get("multivariate_feature_state_values") or []
     before = {}
     for v in mv_values:
-        opt_id = v.get("multivariate_feature_option")
+        opt_id = _option_id(v.get("multivariate_feature_option"))
         key = None
         for k, oid in options.items():
             if oid == opt_id:
@@ -178,7 +197,7 @@ def main(argv):
     new_doc = json.loads(json.dumps(state))  # deep copy
     after = {}
     for v in new_doc.get("multivariate_feature_state_values") or []:
-        opt_id = v.get("multivariate_feature_option")
+        opt_id = _option_id(v.get("multivariate_feature_option"))
         key = None
         for k, oid in options.items():
             if oid == opt_id:

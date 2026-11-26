@@ -68,8 +68,11 @@ if "experiments/" in joined:
     sys.exit(0)
 if "featurestates/" in joined:
     print(json.dumps([
-        {"id": 9001, "feature": {"id": 305610,
-                                 "name": "checkout-headline"},
+        # Real `featurestates/` list shape (verified live 2026-11-26):
+        # "feature" is a bare int id, NOT a nested dict. The dict shape
+        # below (state 9002) is the environment-document shape — ship.py
+        # must read both.
+        {"id": 9001, "feature": 305610,
          "enabled": True,
          "feature_state_value": {"type": "string", "value": "Buy now"},
          "multivariate_feature_state_values": [
@@ -198,6 +201,9 @@ def main():
             check("PUT keeps the base value",
                   body["feature_state_value"] == {"type": "string",
                                                   "value": "Buy now"},
+                  "body: %s" % puts[0]["stdin"])
+            check("PUT keeps the feature id as the bare int",
+                  body["feature"] == 305610,
                   "body: %s" % puts[0]["stdin"])
         audit_rows = read_audit(tmp)
         check("approve appends one audit line", len(audit_rows) == 1,
