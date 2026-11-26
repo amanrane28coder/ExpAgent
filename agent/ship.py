@@ -13,6 +13,11 @@ Preconditions (refusals, exit 1, nothing is changed):
     freezes results and unlocks the flag). A running/paused/created
     experiment is refused: the agent will not ship a live test.
   - --winner must be "control" or a variant key on the flag.
+  - --winner must match the experiment's recorded rollout decision
+    (rollout_decision / rollout_variant, set when the experiment is
+    completed in the dashboard). A "disable" decision, a missing
+    decision, or an unknown decision value is refused: shipping a
+    different winner would contradict what was decided.
 
 Mechanism (verified against Flagsmith's own integration test): GET the
 feature state for the flag in the environment, set the winner's
@@ -157,6 +162,45 @@ def main(argv):
               "(variants: %s)"
               % (winner, feature.get("name", "?"),
                  ", ".join(sorted(options)) or "none"))
+        return 1
+
+    # ---- 1b. the winner must match the recorded rollout decision ----
+    # Completing an experiment records the decision on the experiment
+    # itself (rollout_decision: control | variant | disable, plus
+    # rollout_variant when "variant"). Shipping a different winner
+    # would contradict what was decided in the dashboard, so refuse.
+    decision = exp.get("rollout_decision")
+    rollout_variant = exp.get("rollout_variant")
+    if decision is None:
+        print("REFUSED: experiment %s is completed but records no "
+              "rollout decision — ExpAgent only ships the winner the "
+              "dashboard recorded. End the experiment with a decision, "
+              "then ship." % exp_id)
+        return 1
+    if decision == "disable":
+        print("REFUSED: experiment %s was completed with rollout "
+              "decision 'disable' — the flag was disabled, so there is "
+              "no winner to ship." % exp_id)
+        return 1
+    if decision == "control":
+        if winner != "control":
+            print("REFUSED: experiment %s recorded rollout decision "
+                  "'control', but --winner is %r. Ship the recorded "
+                  "winner or re-decide in the dashboard."
+                  % (exp_id, winner))
+            return 1
+    elif decision == "variant":
+        if rollout_variant is None or options.get(winner) != rollout_variant:
+            print("REFUSED: experiment %s recorded rollout decision "
+                  "'variant' (option %s), but --winner %r does not "
+                  "match it. Ship the recorded winner or re-decide in "
+                  "the dashboard."
+                  % (exp_id, rollout_variant, winner))
+            return 1
+    else:
+        print("REFUSED: experiment %s records an unknown rollout "
+              "decision %r — refusing rather than guessing."
+              % (exp_id, decision))
         return 1
 
     # ---- 2. read the feature state for the flag ----

@@ -45,6 +45,17 @@ if "--method" in argv and "PUT" in argv:
 joined = " ".join(argv)
 if "experiments/" in joined:
     status = os.environ.get("FAKE_EXP_STATUS", "running")
+    # Real shape (verified live 2026-11-26 on experiment 699): a
+    # completed experiment always records a rollout decision; a
+    # running one records none. Override with FAKE_ROLLOUT_DECISION /
+    # FAKE_ROLLOUT_VARIANT (empty string forces None).
+    if "FAKE_ROLLOUT_DECISION" in os.environ:
+        decision = os.environ["FAKE_ROLLOUT_DECISION"] or None
+        variant = os.environ.get("FAKE_ROLLOUT_VARIANT")
+        variant = int(variant) if variant else None
+    else:
+        decision = "variant" if status == "completed" else None
+        variant = 37289 if decision == "variant" else None
     print(json.dumps({
         "id": 685,
         "feature": {"id": 305610, "name": "checkout-headline",
@@ -61,7 +72,7 @@ if "experiments/" in joined:
                      "metric_name": "signup_completed",
                      "aggregation": "occurrence", "direction": "up",
                      "expected_direction": "increase"}],
-        "rollout_decision": None, "rollout_variant": None,
+        "rollout_decision": decision, "rollout_variant": variant,
         "started_at": "2026-11-26T15:56:13.789522Z",
         "ended_at": None,
     }))
@@ -215,12 +226,14 @@ def main():
                   and audit_rows[0]["winner"] == "variant_b",
                   "audit: %s" % audit_rows)
 
-        # 4. control winner: all options to 0
+        # 4. control winner: all options to 0 (decision must be
+        # "control" or the mismatch check refuses it)
         Path(tmp, "calls.jsonl").unlink(missing_ok=True)
         r = run_ship(tmp, fake_dir,
                      ["685", "--winner", "control", "--approve",
                       "--audit-log", audit],
-                     extra_env={"FAKE_EXP_STATUS": "completed"})
+                     extra_env={"FAKE_EXP_STATUS": "completed",
+                                "FAKE_ROLLOUT_DECISION": "control"})
         check("control winner exits 0", r.returncode == 0, r.stderr)
         puts = [c for c in read_calls(tmp) if "PUT" in c["argv"]]
         if puts:
@@ -245,6 +258,41 @@ def main():
               "calls: %s" % read_calls(tmp))
         check("unknown winner writes no audit",
               len(read_audit(tmp)) == before_n)
+
+        # 5b. rollout-decision mismatch: refused, no PUT, no audit
+        mismatch_cases = [
+            ("variant decision, control winner",
+             {"FAKE_ROLLOUT_DECISION": "variant",
+              "FAKE_ROLLOUT_VARIANT": "37289"}, "control"),
+            ("control decision, variant winner",
+             {"FAKE_ROLLOUT_DECISION": "control"}, "variant_b"),
+            ("disable decision, any winner",
+             {"FAKE_ROLLOUT_DECISION": "disable"}, "variant_b"),
+            ("variant decision, wrong option id",
+             {"FAKE_ROLLOUT_DECISION": "variant",
+              "FAKE_ROLLOUT_VARIANT": "99999"}, "variant_b"),
+            ("completed, no recorded decision",
+             {"FAKE_ROLLOUT_DECISION": ""}, "variant_b"),
+            ("unknown decision value",
+             {"FAKE_ROLLOUT_DECISION": "sideways"}, "variant_b"),
+        ]
+        for label, extra, winner in mismatch_cases:
+            Path(tmp, "calls.jsonl").unlink(missing_ok=True)
+            before_n = len(read_audit(tmp))
+            env = {"FAKE_EXP_STATUS": "completed"}
+            env.update(extra)
+            r = run_ship(tmp, fake_dir,
+                         ["685", "--winner", winner, "--approve",
+                          "--audit-log", audit],
+                         extra_env=env)
+            check("mismatch refused: %s (exit 1)" % label,
+                  r.returncode == 1, "exit %d: %s"
+                  % (r.returncode, r.stdout))
+            check("mismatch sends no PUT: %s" % label,
+                  all("PUT" not in c["argv"] for c in read_calls(tmp)),
+                  "calls: %s" % read_calls(tmp))
+            check("mismatch writes no audit: %s" % label,
+                  len(read_audit(tmp)) == before_n)
 
         # 6. missing --winner -> exit 2
         r = run_ship(tmp, fake_dir, ["685", "--approve"])

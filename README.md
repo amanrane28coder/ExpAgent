@@ -206,8 +206,12 @@ dashboard results, ends the experiment there (which freezes results and
 unlocks the flag), and names the winner here. The agent only executes.
 
 Refusals (exit 1, nothing changed): the experiment is not `completed`
-(a running experiment is never shipped), or `--winner` is not `control`
-or a variant on the flag. Mechanism: GET the feature state for the flag,
+(a running experiment is never shipped), `--winner` is not `control`
+or a variant on the flag, or `--winner` disagrees with the experiment's
+recorded rollout decision (`rollout_decision` / `rollout_variant`, set
+when the experiment is completed in the dashboard) — a `disable`
+decision, a missing decision, or an unknown decision value is refused
+too, so a ship can never contradict what was decided. Mechanism: GET the feature state for the flag,
 set the winner's multivariate allocation to 100 and every other option to
 0 (a control win sets all options to 0), PUT the whole document back to
 `api/v1/environments/<key>/featurestates/<id>/`. Dry-run by default;
