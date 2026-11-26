@@ -239,6 +239,13 @@ python3 agent/ship.py 685 --winner variant_b --approve
 # then ship.
 ```
 
+Verified live 2026-11-26 on experiment 699 (checkout-subhead):
+`ship.py 699 --winner variant_b --approve` shipped variant_b to 100% via
+the update-flag endpoint and wrote the audit line. The experiment's
+completion had already applied the rollout, so before and after both read
+`{variant_b: 100}` — the live proof is the PATCH itself (endpoint,
+payload, response verification, audit line), not a visible flip.
+
 ## The live demo (demo-app/)
 
 `demo-app/index.html` is the checkout page the experiment drives. It reads
