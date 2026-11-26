@@ -64,29 +64,30 @@ if argv[:2] == ["feature", "get"]:
                           {"id": 36379, "key": "variant_c",
                            "value": "Get started today", "weight": 0}]}))
 elif "featurestates" in " ".join(argv):
-    # GET .../featurestates/?feature=<id> -> the environment feature
-    # state: current weights live here (variant_b 50, variant_c 0,
-    # control implied 50). The shape is the real Flagsmith
-    # featurestate: "feature" is a bare int, multivariate values carry
-    # "percentage_allocation".
-    print(json.dumps([{"id": 1, "feature": 301244, "enabled": True,
-                       "feature_state_value": "Buy now",
-                       "multivariate_feature_state_values": [
-                           {"multivariate_feature_option": 36378,
-                            "percentage_allocation": 50},
-                           {"multivariate_feature_option": 36379,
-                            "percentage_allocation": 0}]}]))
+    # GET .../featurestates/ -> the environment feature states. The
+    # real list endpoint paginates: {"count", "results": [...]} — the
+    # fake must return that shape; a bare list hid the unwrap bug
+    # until the first live run (2026-11-27). Current weights live
+    # here (variant_b 50, variant_c 0, control implied 50).
+    print(json.dumps({"count": 1, "results": [
+        {"id": 1, "feature": 301244, "enabled": True,
+         "feature_state_value": "Buy now",
+         "multivariate_feature_state_values": [
+             {"multivariate_feature_option": 36378,
+              "percentage_allocation": 50},
+             {"multivariate_feature_option": 36379,
+              "percentage_allocation": 0}]}]}))
 elif "experiment-metrics" in " ".join(argv):
     if "--input" in argv:
         print(json.dumps({"id": 344, "name": "signup_completed"}))
     else:
         # GET .../experiment-metrics/ -> the metric definitions, the
-        # source of the gate's known-events list.
-        print(json.dumps([
+        # source of the gate's known-events list (also paginated).
+        print(json.dumps({"count": 2, "results": [
             {"id": 344, "name": "signup_completed",
              "definition": {"version": 1, "event": "signup_completed"}},
             {"id": 345, "name": "checkout_completed",
-             "definition": {"version": 1, "event": "checkout_completed"}}]))
+             "definition": {"version": 1, "event": "checkout_completed"}}]}))
 elif "experiments" in " ".join(argv):
     print(json.dumps({"id": 397, "name": "A/B test: checkout headline",
                       "status": "created"}))

@@ -45,19 +45,23 @@ if argv[:2] == ["feature", "get"]:
                           {"id": 36379, "key": "variant_c",
                            "value": "Get started today", "weight": 0}]}))
 elif "featurestates" in " ".join(argv):
-    print(json.dumps([{"id": 1, "feature": 301244, "enabled": True,
-                       "feature_state_value": "Buy now",
-                       "multivariate_feature_state_values": [
-                           {"multivariate_feature_option": 36378,
-                            "percentage_allocation": 50},
-                           {"multivariate_feature_option": 36379,
-                            "percentage_allocation": 0}]}]))
+    # The real list endpoint paginates: {"count", "results": [...]}.
+    # The fake must return that shape — a bare list hid the unwrap
+    # bug until the first live run (2026-11-27).
+    print(json.dumps({"count": 1, "results": [
+        {"id": 1, "feature": 301244, "enabled": True,
+         "feature_state_value": "Buy now",
+         "multivariate_feature_state_values": [
+             {"multivariate_feature_option": 36378,
+              "percentage_allocation": 50},
+             {"multivariate_feature_option": 36379,
+              "percentage_allocation": 0}]}]}))
 elif "experiment-metrics" in " ".join(argv):
-    print(json.dumps([
+    print(json.dumps({"count": 2, "results": [
         {"id": 344, "name": "signup_completed",
          "definition": {"version": 1, "event": "signup_completed"}},
         {"id": 345, "name": "checkout_completed",
-         "definition": {"version": 1, "event": "checkout_completed"}}]))
+         "definition": {"version": 1, "event": "checkout_completed"}}]}))
 else:
     print("{}")
 '''

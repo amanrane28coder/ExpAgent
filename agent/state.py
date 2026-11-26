@@ -69,12 +69,25 @@ def run_flagsmith_json(argv):
 
 
 def as_list(data, what):
-    """A list response, or a single object wrapped in a list."""
+    """A list response, a paginated {"results": [...]} response, or a
+    single object wrapped in a list. The real Flagsmith list endpoints
+    paginate — a dict with "results" is the page, not one entry."""
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
-        return [data]
+        if isinstance(data.get("results"), list):
+            return data["results"]
+        if "feature" in data:
+            return [data]
     raise RuntimeError("%s returned unexpected data: %r" % (what, data))
+
+
+def feature_id_of(value):
+    """A feature reference: a bare int in the featurestates list, a
+    nested dict in the environment document. Read both."""
+    if isinstance(value, dict):
+        return value.get("id")
+    return value
 
 
 def option_ids_from(data):
@@ -107,10 +120,13 @@ def build_state(flag, env_key=DEFAULT_ENV_KEY, base=None,
 
     states = as_list(run_flagsmith_json(
         ["flagsmith", "api",
-         "api/v1/environments/%s/featurestates/?feature=%s"
-         % (env_key, feature_id)]), "featurestates")
+         "api/v1/environments/%s/featurestates/" % env_key]),
+        "featurestates")
+    # No server-side filter: fetch the list and match client-side (the
+    # shape proven live by ship.py's old read path).
     entry = next((e for e in states
-                  if isinstance(e, dict) and e.get("feature") == feature_id),
+                  if isinstance(e, dict)
+                  and feature_id_of(e.get("feature")) == feature_id),
                  None)
     if entry is None:
         raise RuntimeError("no feature state for flag '%s' (id %s) in "
