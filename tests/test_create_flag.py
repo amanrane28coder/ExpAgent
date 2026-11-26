@@ -278,12 +278,15 @@ def main():
               and audit_rows[0]["verdict"] == "approved",
               "audit: %s" % audit_rows)
 
-        # 5. failing CLI -> exit 2
+        # 5. failing CLI -> exit 2, and the failure is the lookup itself
+        # (a non-not-found error is re-raised, not treated as "absent")
         r = run_create(tmp, fake_dir,
                        [str(plan_path), "--approve", "--audit-log", audit],
                        extra_env={"FAKE_FLAGSMITH_FAIL": "1"})
         check("failing CLI exits 2", r.returncode == 2,
               "exit %d" % r.returncode)
+        check("failing CLI fails at the lookup, not a phantom create",
+              "feature get" in r.stderr, r.stderr)
 
         # 6. --help: usage, no CLI call
         Path(tmp, "calls.jsonl").unlink(missing_ok=True)
@@ -310,6 +313,47 @@ def main():
         r = run_create(tmp, fake_dir, [str(no_control_path)])
         check("plan without control exits 2", r.returncode == 2,
               "exit %d" % r.returncode)
+
+        # 8. flag exists with a different control value -> exit 2, refused
+        # (reuse is verified, not assumed)
+        Path(tmp, "calls.jsonl").unlink(missing_ok=True)
+        Path(tmp, "audit.log").unlink(missing_ok=True)
+        Path(tmp, "flag-state.json").write_text(json.dumps({
+            "id": 999001, "name": "checkout-subhead",
+            "type": "MULTIVARIATE", "initial_value": "Some other copy",
+            "multivariate_options": [
+                {"id": 900001, "key": "variant_b",
+                 "string_value": "New version",
+                 "default_percentage_allocation": 0.0}]}))
+        r = run_create(tmp, fake_dir,
+                       [str(plan_path), "--approve", "--audit-log", audit])
+        check("different control value exits 2", r.returncode == 2,
+              "exit %d: %s" % (r.returncode, r.stderr))
+        check("different control value refuses to reuse",
+              "does not match the plan" in r.stderr, r.stderr)
+        calls = read_calls(tmp)
+        check("different control value makes no create or variant-add",
+              all(c["argv"][:2] != ["feature", "create"]
+                  and c["argv"][:3] != ["feature", "variant", "add"]
+                  for c in calls),
+              "calls: %s" % calls)
+
+        # 9. flag exists with a different variant value -> exit 2
+        Path(tmp, "calls.jsonl").unlink(missing_ok=True)
+        Path(tmp, "audit.log").unlink(missing_ok=True)
+        Path(tmp, "flag-state.json").write_text(json.dumps({
+            "id": 999001, "name": "checkout-subhead",
+            "type": "MULTIVARIATE", "initial_value": "Current version",
+            "multivariate_options": [
+                {"id": 900001, "key": "variant_b",
+                 "string_value": "Different copy",
+                 "default_percentage_allocation": 0.0}]}))
+        r = run_create(tmp, fake_dir,
+                       [str(plan_path), "--approve", "--audit-log", audit])
+        check("different variant value exits 2", r.returncode == 2,
+              "exit %d: %s" % (r.returncode, r.stderr))
+        check("different variant value refuses to reuse",
+              "does not match the plan" in r.stderr, r.stderr)
 
     print("test_create_flag: %d passed, %d failed" % (passed, failed))
     return 0 if failed == 0 else 1

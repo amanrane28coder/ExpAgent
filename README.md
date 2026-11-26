@@ -128,6 +128,10 @@ BLOCKs on:
 
 The gate recommends only — it approves nothing. A human approves.
 
+That approval is a process control, not a cryptographic one: `--approve`
+is a flag run by a human, and ExpAgent enforces the two-gate order and
+audits who ran it — but it cannot verify the approver's identity.
+
 ## The probe runner (adversarial plans through the real gate)
 
 `python3 gate/probe.py` builds 5 adversarial plans + 1 clean plan and runs
@@ -172,7 +176,11 @@ flagsmith feature variant add checkout-headline --value "Start free trial" --key
 
 Idempotent: if the flag already exists it is reused (no re-create) and only
 missing variants are added — a re-run on `checkout-headline` prints "already
-exists (id 305610)" and exits 0. Dry-run (default) prints the commands and
+exists (id 305610)" and exits 0. Reuse is verified, not assumed: the existing
+flag's control value and every existing variant's value must match the plan —
+a flag that exists with different copy is refused, never silently reused. And
+a lookup failure is not treated as "not found": only a not-found error means
+the flag is absent; any other CLI error fails loudly. Dry-run (default) prints the commands and
 runs nothing; `--approve` creates. The create/variant-add calls return text,
 not JSON, so the command never parses their output — it re-reads the flag
 with `feature get --json` to verify the result, and appends an audit line.
@@ -196,7 +204,9 @@ not started):
 Dry-run (default) prints the exact commands and payloads and runs nothing.
 `--approve` runs them: metric first, then the experiment with the real metric
 id. The experiment is created, **never started** — starting locks the flag.
-Every run appends one JSON line to `audit.log` (who, what, verdict,
+If the experiment create fails after the metric was created, the applier
+deletes the just-created metric best-effort (the endpoint exists in the
+build's schema) and audits the outcome — no silent orphan. Every run appends one JSON line to `audit.log` (who, what, verdict,
 timestamp, before/after weights) and prints a rollback command
 (`--method DELETE` on the created experiment).
 

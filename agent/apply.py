@@ -127,6 +127,29 @@ def resolve_feature(flag, env_key):
     return feature_id, options
 
 
+def run_flagsmith_noparse(argv):
+    """Run one `flagsmith ...` call where the response body is not JSON
+    (a DELETE returns 204 No Content). Returns stdout on exit 0, raises
+    RuntimeError otherwise."""
+    result = subprocess.run(argv, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError("flagsmith %s failed (exit %d): %s"
+                           % (" ".join(argv[1:]), result.returncode,
+                              result.stderr.strip() or result.stdout.strip()))
+    return result.stdout
+
+
+def delete_metric(env_key, metric_id):
+    """Delete one experiment metric. The endpoint exists in the
+    self-hosted build's own OpenAPI schema (DELETE on
+    .../experiment-metrics/{id}/, verified 2026-11-27)."""
+    run_flagsmith_noparse(
+        ["flagsmith", "api",
+         "api/v1/environments/%s/experiment-metrics/%s/"
+         % (env_key, metric_id), "--method", "DELETE"])
+
+
 def append_audit(path, entry):
     with open(path, "a") as f:
         f.write(json.dumps(entry) + "\n")
@@ -283,16 +306,26 @@ def main(argv):
     except RuntimeError as e:
         audit["verdict"] = "failed"
         audit["error"] = str(e)
-        if metric_id is not None:
-            # The metric was created before the experiment failed — name
-            # it, so it does not become a silent orphan (cf. 649/672).
+        if metric_id is not None and experiment_id is None:
+            # The metric was created before the experiment failed. It
+            # was created seconds ago by this run and nothing references
+            # it, so delete it best-effort rather than leaving an orphan
+            # (cf. 649/672). A failed delete is reported, not hidden.
+            audit["metric_id"] = metric_id
+            try:
+                delete_metric(env_key, metric_id)
+                audit["orphan_metric"] = "deleted"
+                print("apply note: orphan metric %s deleted"
+                      % metric_id, file=sys.stderr)
+            except RuntimeError as de:
+                audit["orphan_metric"] = "not_deleted"
+                print("apply note: orphan metric %s could not be "
+                      "deleted (%s) — delete it or reuse it"
+                      % (metric_id, de), file=sys.stderr)
+        elif metric_id is not None:
             audit["metric_id"] = metric_id
         append_audit(audit_log, audit)
         print("apply error: %s" % e, file=sys.stderr)
-        if metric_id is not None:
-            print("apply note: metric %s was created before the failure — "
-                  "it is an orphan; delete it or reuse it"
-                  % metric_id, file=sys.stderr)
         return 2
 
     audit["verdict"] = "approved"

@@ -20,7 +20,13 @@ not the literal string "control".
 
 Idempotent: if the flag already exists it is reused (no re-create) and
 only missing variants are added. A re-run on checkout-headline prints
-"already exists (id 305610)" and exits 0.
+"already exists (id 305610)" and exits 0. Reuse is verified, not assumed:
+the existing flag's control value and every existing variant's value
+must match the plan — a flag that exists with different copy is refused
+(exit 2), never silently reused. And a lookup failure is not treated as
+"not found": only a not-found error means the flag is absent; any other
+CLI error (auth, network, crash) fails loudly instead of triggering a
+create against an unknown state.
 
 Dry-run is the default: it prints the exact commands and runs NOTHING.
 A real create happens only with --approve, and only after a human has
@@ -90,12 +96,65 @@ def run_flagsmith_text(argv):
 
 def get_feature(flag):
     """Read one flag via `feature get --json`. Returns the parsed dict,
-    or None if the flag does not exist (CLI exits non-zero)."""
+    or None if the flag does not exist. Only a not-found error means
+    "absent" — any other CLI failure is re-raised, so a lookup error is
+    never mistaken for a missing flag."""
     try:
         return run_flagsmith_json(["flagsmith", "feature", "get",
                                    flag, "--json"])
-    except RuntimeError:
-        return None
+    except RuntimeError as e:
+        if is_not_found(e):
+            return None
+        raise
+
+
+# Substrings (lowercase) that mark a CLI error as "flag does not exist".
+# Anything else — auth failure, network error, crash — is a real error.
+NOT_FOUND_MARKERS = ("404", "not found", "does not exist", "no feature")
+
+
+def is_not_found(error):
+    msg = str(error).lower()
+    return any(m in msg for m in NOT_FOUND_MARKERS)
+
+
+def option_value(opt):
+    """A variant option's value: `string_value` in the real CLI shape,
+    `value` in fixtures. None when the shape carries no value."""
+    value = opt.get("string_value")
+    return value if value is not None else opt.get("value")
+
+
+def verify_existing(current, control_value, variants):
+    """Check an existing flag against the plan. Returns
+    (mismatches, unverifiable): mismatches are hard refusals (the flag
+    exists with different copy); unverifiable notes are fields the flag
+    response did not carry, so they could not be checked."""
+    mismatches = []
+    unverifiable = []
+    initial = current.get("initial_value")
+    if initial is None:
+        unverifiable.append("flag get returned no initial_value — "
+                            "control value not verified")
+    elif initial != control_value:
+        mismatches.append("flag value is %r, plan control is %r"
+                          % (initial, control_value))
+    have_values = {}
+    for opt in (current.get("variants", [])
+                + current.get("multivariate_options", [])):
+        if opt.get("key"):
+            have_values[opt["key"]] = option_value(opt)
+    for v in variants:
+        if v["key"] not in have_values:
+            continue  # missing variant: added later, not a mismatch
+        existing = have_values[v["key"]]
+        if existing is None:
+            unverifiable.append("variant %s carries no value — "
+                                "not verified" % v["key"])
+        elif existing != v["value"]:
+            mismatches.append("variant %s value is %r, plan says %r"
+                              % (v["key"], existing, v["value"]))
+    return mismatches, unverifiable
 
 
 def option_ids_from(data):
@@ -206,6 +265,16 @@ def main(argv):
         if current is None:
             raise RuntimeError("flag '%s' still missing after create"
                                % plan["flag"])
+        # Reuse is verified: a pre-existing flag with different copy is
+        # refused here, before any variant is added.
+        mismatches, unverifiable = verify_existing(
+            current, control_value, variants)
+        for note in unverifiable:
+            print("== note: %s" % note)
+        if mismatches:
+            raise RuntimeError("existing flag '%s' does not match the "
+                               "plan: %s — refusing to reuse it"
+                               % (plan["flag"], "; ".join(mismatches)))
         feature_id = current.get("id")
         if not feature_id:
             raise RuntimeError("feature get for '%s' returned no id"

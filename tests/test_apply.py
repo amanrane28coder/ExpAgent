@@ -39,8 +39,15 @@ if os.environ.get("FAKE_FLAGSMITH_FAIL") == "1":
     print("fake flagsmith: simulated failure", file=sys.stderr)
     sys.exit(1)
 if os.environ.get("FAKE_FLAGSMITH_FAIL_EXPERIMENTS") == "1" \
-        and "experiments" in " ".join(argv):
+        and "/experiments/" in " ".join(argv) \
+        and "experiment-metrics" not in " ".join(argv):
     print("fake flagsmith: simulated experiment failure",
+          file=sys.stderr)
+    sys.exit(1)
+if os.environ.get("FAKE_FLAGSMITH_FAIL_METRIC_DELETE") == "1" \
+        and "--method" in argv and "DELETE" in argv \
+        and "experiment-metrics" in " ".join(argv):
+    print("fake flagsmith: simulated metric-delete failure",
           file=sys.stderr)
     sys.exit(1)
 if argv[:2] == ["feature", "get"]:
@@ -217,17 +224,40 @@ def main():
               "audit: %s" % audit)
 
         # 5. metric succeeds, experiment fails -> exit 2, audit names the
-        #    orphan metric (regression: the id was lost, cf. 649/672)
+        #    orphan metric (regression: the id was lost, cf. 649/672),
+        #    and the orphan is deleted best-effort, not left behind
         r = run_apply(tmp, fake_dir, ["--approve"],
                       extra_env={"FAKE_FLAGSMITH_FAIL_EXPERIMENTS": "1"})
         check("experiment failure exits 2", r.returncode == 2,
               "exit %d" % r.returncode)
         audit = read_audit(tmp)
+        calls = read_calls(tmp)
         check("experiment failure audit names orphan metric 344",
               audit and audit[-1]["verdict"] == "failed"
               and audit[-1]["metric_id"] == 344,
               "audit: %s" % audit)
         check("experiment failure prints the orphan metric id",
+              "metric 344" in r.stderr, r.stderr)
+        deletes = [c for c in calls if "--method" in c["argv"]
+                   and "DELETE" in c["argv"]
+                   and "experiment-metrics/344/" in " ".join(c["argv"])]
+        check("experiment failure deletes the orphan metric",
+              len(deletes) == 1, "calls: %s" % calls)
+        check("experiment failure audits the orphan as deleted",
+              audit and audit[-1].get("orphan_metric") == "deleted",
+              "audit: %s" % audit)
+
+        # 6. metric delete fails too -> exit 2, audit says not_deleted
+        r = run_apply(tmp, fake_dir, ["--approve"],
+                      extra_env={"FAKE_FLAGSMITH_FAIL_EXPERIMENTS": "1",
+                                 "FAKE_FLAGSMITH_FAIL_METRIC_DELETE": "1"})
+        check("delete failure still exits 2", r.returncode == 2,
+              "exit %d" % r.returncode)
+        audit = read_audit(tmp)
+        check("delete failure audits the orphan as not_deleted",
+              audit and audit[-1].get("orphan_metric") == "not_deleted",
+              "audit: %s" % audit)
+        check("delete failure prints the orphan metric id",
               "metric 344" in r.stderr, r.stderr)
 
     print("test_apply: %d passed, %d failed" % (passed, failed))
