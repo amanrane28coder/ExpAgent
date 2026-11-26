@@ -227,7 +227,7 @@ objects by hand — dashboard clicks for flag + variant + metric + experiment
 3. Human approves a clean plan; agent applies it; `status.py` shows the
    experiment created; audit log shows the decision.
 4. Live flip: the demo page in two tabs (`?identity=alice`,
-   `?identity=bob`) — one shows "Buy now", the other "Start free trial";
+   `?identity=carol`) — one shows "Buy now", the other "Start free trial";
    a click sends `signup_completed`.
 5. Rollback: one command deletes the experiment; `status.py` / the
    experiment list shows it gone.
