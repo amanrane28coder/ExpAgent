@@ -1,8 +1,9 @@
 # ExpAgent demo video — recording script (~2 min)
 
 Record **tomorrow (Fri Nov 27)**. Silent screen capture first (Cmd+Shift+5),
-voiceover separately, merge with ffmpeg. Do NOT re-run live writes on camera —
-replay the verified runs below. Current live state: experiment **685 running**
+voiceover separately, merge with ffmpeg. Bump the terminal font to 16–18pt
+before the plan/probe/audit shots — small terminal text is unreadable on
+video. Do NOT re-run live writes on camera — replay the verified runs below. Current live state: experiment **685 running**
 (metric 674), flag `checkout-headline`, demo pair **alice (control) + carol
 (variant_b)**. Demo server is running detached on port 8000; if the browser
 can't reach it, restart with `cd ~/expagent/demo-app && nohup python3 -m
