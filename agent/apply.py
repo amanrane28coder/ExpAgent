@@ -59,10 +59,17 @@ def metric_payload(plan):
 
 def experiment_payload(plan, feature_id, metric_id, option_ids):
     """option_ids: {variant_key: multivariate option id} for non-control."""
+    # The control group's value is the control variant's VALUE ("Buy now"),
+    # not its key. The first version hardcoded "control" here, so control-arm
+    # identities got the literal string "control" from the SDK instead of the
+    # headline copy (caught live 2026-11-26: alice saw "control" / variant
+    # unknown on the demo page while bob correctly got "Start free trial").
+    control_value = next(v["value"] for v in plan["variants"]
+                         if v["key"] == "control")
     rollout = {
         "enabled": True,
         "rollout_percentage": 100,
-        "feature_state_value": {"type": "string", "value": "control"},
+        "feature_state_value": {"type": "string", "value": control_value},
         "multivariate_feature_state_values": [
             {"multivariate_feature_option": option_ids[v["key"]],
              "percentage_allocation": v["weight"]}

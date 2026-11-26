@@ -169,6 +169,10 @@ def main():
                   ["multivariate_feature_state_values"]
                   == [{"multivariate_feature_option": 36378,
                        "percentage_allocation": 50}])
+            check("experiment rollout control value is the control copy",
+                  exp_payload["experiment_rollout"]["feature_state_value"]
+                  == {"type": "string", "value": "Buy now"},
+                  "payload: %s" % exp_payload)
         check("approve prints APPLIED with ids 344/397",
               "metric id 344" in r.stdout and "experiment id 397" in r.stdout,
               r.stdout)
