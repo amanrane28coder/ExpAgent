@@ -1,0 +1,1 @@
+{"current_weights":{"control":50,"variant_b":50,"variant_c":0},"environment":"development","flag":"checkout-headline","kill_switch_on":true,"known_events":["checkout_completed","signup_completed","cta_clicked","trial_started","page_viewed"],"staging_only_flags":["internal-debug-flag"]}
