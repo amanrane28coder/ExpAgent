@@ -215,7 +215,7 @@ def main():
                   and "/features/305610/" in " ".join(puts[0]["argv"]),
                   "argv: %s" % puts[0]["argv"])
         check("approve prints after allocations from the response",
-              "after: {'variant_b': 100}" in r.stdout, r.stdout)
+              "after:  {'variant_b': 100}" in r.stdout, r.stdout)
         audit_rows = read_audit(tmp)
         check("approve appends one audit line", len(audit_rows) == 1,
               "audit: %s" % audit_rows)
