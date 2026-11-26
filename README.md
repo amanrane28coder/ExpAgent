@@ -216,22 +216,25 @@ The manual comparison is the brief's ~10-minute estimate for the same four
 objects by hand — dashboard clicks for flag + variant + metric + experiment
 + SDK snippet — **not** a fresh measurement. Do not present it as measured.
 
-## Video shot list (~2 min)
+## Video shot list (~2 min) — full script in VIDEO-SCRIPT.md
 
-1. Problem: setting up an experiment by hand = flag + variants + metric +
-   split + SDK code, ~10 min of dashboard clicks (brief's estimate), easy
-   to mis-set a weight.
-2. Prompt: one sentence in, plan out — flag, variants, metric, split, code.
-   Run the probe: the gate BLOCKs a bad plan (weights 99) with the reason
-   shown.
-3. Human approves a clean plan; agent applies it; `status.py` shows the
-   experiment created; audit log shows the decision.
-4. Live flip: the demo page in two tabs (`?identity=alice`,
-   `?identity=carol`) — one shows "Buy now", the other "Start free trial";
-   a click sends `signup_completed`.
-5. Rollback: one command deletes the experiment; `status.py` / the
-   experiment list shows it gone.
-6. Close: "One prompt, checked, approved, applied. Repo on screen."
+1. Cold open: the flip — two tabs (`?identity=alice` "Buy now",
+   `?identity=carol` "Start free trial").
+2. Problem: hand setup = flag + variants + metric + split + SDK code,
+   ~10 min of dashboard clicks (brief's estimate), one wrong weight breaks
+   the test.
+3. Prompt: one sentence in, plan out — flag, variants, metric, split,
+   code. The agent proposes; the human approves.
+4. Gate: the probe BLOCKs bad plans (weights 99, 0% variant, unknown
+   metric) with the reason shown — and it caught a real bug in itself
+   (0% crash, fixed).
+5. Human approves; agent applies; `status.py` shows experiment 685
+   running; audit log shows the decision; Flagsmith Cloud dashboard shows
+   the 50/50 split.
+6. Live flip explained; a click sends `signup_completed`.
+7. Rollback: one command deletes the experiment (proven on 663, audit log
+   shows it). Close: "One prompt, checked, approved, applied. Repo on
+   screen."
 
 ## Status — what is done, what needs Aman's terminal
 
