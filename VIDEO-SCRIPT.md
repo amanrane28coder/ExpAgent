@@ -64,9 +64,11 @@ Ask it to ship now and it refuses — the experiment is still running. It
 only ships a completed experiment, with a human naming the winner."
 
 **Shot 8 — rollback and close.** "And if it's wrong, one command deletes
-the experiment. We proved the rollback on the first run, and the audit log
-shows it. One prompt, checked, approved, applied. ExpAgent — the gate, the
-approval, the audit, and the rollback around every Flagsmith experiment."
+the experiment. We proved the rollback on the first run — the audit log
+shows 663 was applied, and the experiment list after the delete showed
+only the pre-work experiment. One prompt, checked, approved, applied.
+ExpAgent — the gate, the approval, the audit, and the rollback around
+every Flagsmith experiment."
 
 ## Shots (what to capture, in order)
 
@@ -77,7 +79,7 @@ approval, the audit, and the rollback around every Flagsmith experiment."
 2. **Problem** — terminal with the plan command (shot 3 covers the visual;
    narration runs over the plan output). No separate capture.
 3. **Prompt → plan → flag** — run live (safe, no Flagsmith write):
-   `python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks"`
+   `python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks" > /tmp/plan.json`
    Show the plan JSON: flag, variants, metric, split, snippet. Then
    `python3 agent/create_flag.py /tmp/plan.json --approve` — the flag
    already exists (id 305610), so it reuses it and adds nothing. Safe and
@@ -88,7 +90,7 @@ approval, the audit, and the rollback around every Flagsmith experiment."
 5. **Approve + apply + status** — do NOT re-apply (experiment 685 is
    active; a re-apply 409s). Show the already-run evidence instead:
    - `python3 agent/status.py 685` (read-only, safe) — shows running.
-   - `tail -3 audit.log` — shows the approved apply line.
+   - `grep 685 audit.log` — shows the approved apply line.
    - Flagsmith Cloud dashboard, experiment 685 open — status running,
      50/50 split visible. (Sign in as rane.aman28@gmail.com first.)
 6. **Flip explained + metric** — back to the carol tab, click the button:
@@ -102,8 +104,9 @@ approval, the audit, and the rollback around every Flagsmith experiment."
    Do NOT end 685 to demo a real ship; the flip needs it running.
 8. **Rollback + close** — do NOT delete 685 on camera (it is the live
    experiment). Show the proven rollback instead: `grep 663 audit.log`
-   (the 19:42 IST rollback of experiment 663) and the experiment-list
-   output showing only 397 after the delete. Close on the repo:
+   shows the 663 apply line; the rollback itself was verified live at
+   19:42 IST, when the experiment list after the delete showed only the
+   pre-work experiment 397. Close on the repo:
    `github.com/amanrane28coder/ExpAgent`.
 
 Add a one-word text label per shot in editing if easy (Flip / Problem /

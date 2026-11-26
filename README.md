@@ -263,10 +263,12 @@ The page shows the identity in use, the flag value, and which variant it
 is (`Buy now` = control, `Start free trial` = variant_b); clicking the
 button sends `signup_completed`. `?identity=` defaults to `demo-user`.
 
-The live flip needs a RUNNING experiment: the flag returns the control
-value for every identity until the experiment is started (starting locks
-the flag — see "Still to do" below). Do not claim the flip works until the
-experiment is started and two identities show two variants.
+The flip is live: experiment 685 has been running since Nov 26, 2026
+21:26 IST (50/50, metric 674) — alice shows "Buy now" (control), carol
+shows "Start free trial" (variant_b), verified via the edge API and in
+the browser. The throwaway experiment 699 was completed and shipped
+Nov 26, 23:15 IST. Do not end 685 before the video — the flip dies
+with it.
 
 ## Layout
 
@@ -375,35 +377,15 @@ Done (all verified in this repo, no real Flagsmith calls in tests):
 - Probe runner + status command + live demo wiring + measured timing
   (this round).
 
-Still to do — Aman's terminal only (the CLI keychain is unavailable over
-SSH, so these cannot run from here):
+Still to do
 
-1. Re-apply plan 1 (experiment 663 was rolled back, so this creates a NEW
-   experiment), then START it — starting locks the flag, and the live flip
-   needs it running. Then check the status and the live flip.
+Done, live: plan 1 applied as experiment 685 (metric 674), started
+Nov 26, 2026 21:26 IST, flip verified (alice "Buy now" / carol
+"Start free trial"); throwaway experiment 699 completed and shipped
+Nov 26, 23:15 IST (live proof of results + ship).
 
-```
-export PATH=$HOME/.local/bin:$PATH
-cd ~/expagent
-python3 agent/plan.py "A/B test checkout headline, 50/50, measure sign-ups, 2 weeks" > /tmp/plan1.json
-python3 gate/gate.py /tmp/plan1.json examples/state-example.json
-python3 agent/apply.py /tmp/plan1.json --approve --state examples/state-example.json --who aman
-```
-
-Take the new experiment id from the apply output, then start it and check
-it (the start call follows the same `--input` POST pattern as the proven
-metric/experiment creates; it has not been run yet):
-
-```
-echo '{}' | flagsmith api api/v1/environments/MHSyYjVPRHPkaYLkdRHaCS/experiments/<new-id>/start/ --input -
-python3 agent/status.py <new-id>
-```
-
-Then the live flip check: serve `demo-app/` (`python3 -m http.server`
-from that dir) and open `http://localhost:8000/?identity=alice` and
-`http://localhost:8000/?identity=bob` — one tab should show "Buy now",
-the other "Start free trial". If both show the same copy, the rollout has
-not taken effect yet — wait a minute and reload.
-
-2. Record the video (shot list above) and submit Track 2 before
+1. Record the video (shot list above) and submit Track 2 before
    Sun Nov 29, 20:00 IST.
+2. Manual baseline (Aman): time the full manual flow for a fresh flag
+   in the dashboard — until then "about ten minutes" stays an estimate,
+   correctly labelled.

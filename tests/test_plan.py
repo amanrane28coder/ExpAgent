@@ -74,6 +74,18 @@ def main():
             print("PASS %s -> flag=%s weights=%s event=%s %dd"
                   % (fname, flag, weights, event, days))
             passed += 1
+    # 4-variant prompt (regression: DEFAULT_VALUES had only 3 entries,
+    # so a 4-way split crashed with IndexError).
+    err = check_case(
+        "4-variant inline",
+        "A/B test checkout headline, 25/25/25/25, measure sign-ups, 2 weeks",
+        "checkout-headline", [25, 25, 25, 25], "signup_completed", 14)
+    if err:
+        print("FAIL 4-variant inline: %s" % err)
+        failed += 1
+    else:
+        print("PASS 4-variant inline -> weights=[25, 25, 25, 25]")
+        passed += 1
     for prompt, label in ERROR_CASES:
         result = run_plan(prompt)
         if result.returncode == 2:

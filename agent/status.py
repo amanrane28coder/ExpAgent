@@ -40,7 +40,9 @@ def run_flagsmith(argv):
 
 
 def format_percent(value):
-    """100.0 -> '100%', 50.5 -> '50.5%'."""
+    """100.0 -> '100%', 50.5 -> '50.5%', None -> '—'."""
+    if value is None:
+        return "—"
     if isinstance(value, float) and value.is_integer():
         return "%d%%" % int(value)
     return "%s%%" % value
@@ -72,8 +74,11 @@ def summarize(exp):
     if rollout:
         allocs = rollout.get("multivariate_feature_state_values") or []
         # Map option id -> variant key from the feature's own options.
+        # Real `feature get --json` returns options under "variants";
+        # older shapes used "multivariate_options" — read both.
         key_by_option = {}
-        for opt in feature.get("multivariate_options") or []:
+        for opt in (feature.get("variants") or []) + \
+                (feature.get("multivariate_options") or []):
             if opt.get("id") is not None and opt.get("key"):
                 key_by_option[opt["id"]] = opt["key"]
         parts = []

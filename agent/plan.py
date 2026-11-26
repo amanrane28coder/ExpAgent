@@ -34,8 +34,10 @@ KNOWN_EVENTS = {
 # Default display copy per variant key, used when the prompt gives no quoted
 # values. Headline tests get checkout copy; anything else gets neutral copy.
 DEFAULT_VALUES = {
-    "headline": ["Buy now", "Start free trial", "Get started today"],
-    "default": ["Current version", "New version", "New version 2"],
+    "headline": ["Buy now", "Start free trial", "Get started today",
+                 "Try it free"],
+    "default": ["Current version", "New version", "New version 2",
+                "New version 3"],
 }
 
 VARIANT_KEYS = ["control", "variant_b", "variant_c", "variant_d"]

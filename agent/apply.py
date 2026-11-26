@@ -255,6 +255,8 @@ def main(argv):
         return 0
 
     # ---- real apply: metric first, then the experiment with its real id ----
+    metric_id = None
+    experiment_id = None
     try:
         metric_resp = run_flagsmith(
             ["flagsmith", "api", metric_path, "--input", "-"], metric_json)
@@ -281,8 +283,16 @@ def main(argv):
     except RuntimeError as e:
         audit["verdict"] = "failed"
         audit["error"] = str(e)
+        if metric_id is not None:
+            # The metric was created before the experiment failed — name
+            # it, so it does not become a silent orphan (cf. 649/672).
+            audit["metric_id"] = metric_id
         append_audit(audit_log, audit)
         print("apply error: %s" % e, file=sys.stderr)
+        if metric_id is not None:
+            print("apply note: metric %s was created before the failure — "
+                  "it is an orphan; delete it or reuse it"
+                  % metric_id, file=sys.stderr)
         return 2
 
     audit["verdict"] = "approved"

@@ -38,6 +38,11 @@ if log_path:
 if os.environ.get("FAKE_FLAGSMITH_FAIL") == "1":
     print("fake flagsmith: simulated failure", file=sys.stderr)
     sys.exit(1)
+if os.environ.get("FAKE_FLAGSMITH_FAIL_EXPERIMENTS") == "1" \
+        and "experiments" in " ".join(argv):
+    print("fake flagsmith: simulated experiment failure",
+          file=sys.stderr)
+    sys.exit(1)
 if argv[:2] == ["feature", "get"]:
     print(json.dumps({"id": 301244, "name": argv[2],
                       "type": "multivariate",
@@ -210,6 +215,20 @@ def main():
         check("failing CLI appends audit line with verdict failed",
               audit and audit[-1]["verdict"] == "failed",
               "audit: %s" % audit)
+
+        # 5. metric succeeds, experiment fails -> exit 2, audit names the
+        #    orphan metric (regression: the id was lost, cf. 649/672)
+        r = run_apply(tmp, fake_dir, ["--approve"],
+                      extra_env={"FAKE_FLAGSMITH_FAIL_EXPERIMENTS": "1"})
+        check("experiment failure exits 2", r.returncode == 2,
+              "exit %d" % r.returncode)
+        audit = read_audit(tmp)
+        check("experiment failure audit names orphan metric 344",
+              audit and audit[-1]["verdict"] == "failed"
+              and audit[-1]["metric_id"] == 344,
+              "audit: %s" % audit)
+        check("experiment failure prints the orphan metric id",
+              "metric 344" in r.stderr, r.stderr)
 
     print("test_apply: %d passed, %d failed" % (passed, failed))
     return 0 if failed == 0 else 1

@@ -139,7 +139,10 @@ def main(argv):
               file=sys.stderr)
         return 2
     options = {}
-    for opt in feature.get("multivariate_options") or []:
+    # Real `feature get --json` returns options under "variants";
+    # older shapes used "multivariate_options" — read both.
+    for opt in (feature.get("variants") or []) + \
+            (feature.get("multivariate_options") or []):
         if opt.get("key") and opt.get("id") is not None:
             options[opt["key"]] = opt["id"]
     if winner != "control" and winner not in options:
